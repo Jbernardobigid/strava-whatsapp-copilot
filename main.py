@@ -1,10 +1,13 @@
 import json
 import os
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytz
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from twilio.rest import Client
 
@@ -13,7 +16,7 @@ load_dotenv()
 app = FastAPI(title="Strava WhatsApp Copilot")
 
 TOKEN_FILE = Path("strava_tokens.json")
-
+PROCESSED_EVENTS_FILE = Path("processed_events.json")
 
 def save_strava_tokens(token_data: dict) -> None:
     TOKEN_FILE.write_text(json.dumps(token_data, indent=2), encoding="utf-8")
@@ -29,6 +32,43 @@ def load_strava_tokens() -> dict | None:
 
     return json.loads(content)
 
+def load_processed_events() -> set[str]:
+    if not PROCESSED_EVENTS_FILE.exists():
+        return set()
+
+    content = PROCESSED_EVENTS_FILE.read_text(encoding="utf-8").strip()
+    if not content:
+        return set()
+
+    return set(json.loads(content))
+
+
+def save_processed_events(event_ids: set[str]) -> None:
+    PROCESSED_EVENTS_FILE.write_text(
+        json.dumps(sorted(event_ids), indent=2),
+        encoding="utf-8",
+    )
+
+
+def build_event_key(event: dict) -> str:
+    object_type = event.get("object_type", "")
+    aspect_type = event.get("aspect_type", "")
+    object_id = event.get("object_id", "")
+
+    return f"{object_type}:{aspect_type}:{object_id}"
+
+
+def has_processed_event(event: dict) -> bool:
+    event_key = build_event_key(event)
+    processed = load_processed_events()
+    return event_key in processed
+
+
+def mark_event_as_processed(event: dict) -> None:
+    event_key = build_event_key(event)
+    processed = load_processed_events()
+    processed.add(event_key)
+    save_processed_events(processed)
 
 def refresh_strava_token_if_needed() -> dict | None:
     token_data = load_strava_tokens()
@@ -41,7 +81,6 @@ def refresh_strava_token_if_needed() -> dict | None:
     if not expires_at or not refresh_token:
         return token_data
 
-    import time
     now = int(time.time())
 
     # Refresh if expired or close to expiring
@@ -150,7 +189,6 @@ def interpret_ride(activity: dict, ride_classification: str) -> str:
 
 
 def suggest_next_day(activity: dict, ride_classification: str) -> str:
-    elevation = activity["elevation_gain_m"]
     moving_time = activity["moving_time_min"]
 
     if ride_classification == "longo":
@@ -162,6 +200,13 @@ def suggest_next_day(activity: dict, ride_classification: str) -> str:
     if ride_classification == "curto":
         return "Se estiver bem, amanhã pode encaixar um treino mais estruturado."
     return "Se estiver se sentindo bem, faça um giro leve. Se estiver cansado, descanse."
+
+
+def format_datetime_pt_br(iso_string: str) -> str:
+    dt_utc = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+    tz = pytz.timezone("America/Sao_Paulo")
+    dt_local = dt_utc.astimezone(tz)
+    return dt_local.strftime("%d/%m às %H:%M")
 
 
 def format_duration_pt_br(total_minutes: float) -> str:
@@ -176,22 +221,15 @@ def format_duration_pt_br(total_minutes: float) -> str:
     return f"{minutes}min"
 
 
-def build_activity_message(activity: dict) -> str:
-    tipo = translate_activity_type(activity["type"])
-    ride_classification = classify_ride(activity)
-    interpretation = interpret_ride(activity, ride_classification)
-    next_day = suggest_next_day(activity, ride_classification)
-    tempo_formatado = format_duration_pt_br(activity["moving_time_min"])
-
-    return (
-        "Bom pedal 🚴\n\n"
-        f"{activity['name']}\n"
-        f"{tipo} • {activity['distance_km']} km • {tempo_formatado} • {activity['elevation_gain_m']} m\n\n"
-        "Leitura do treino:\n"
-        f"{interpretation}\n\n"
-        "Sugestão para amanhã:\n"
-        f"{next_day}"
-    )
+def simplify_activity(activity: dict) -> dict:
+    return {
+        "name": activity.get("name"),
+        "distance_km": round(activity.get("distance", 0) / 1000, 2),
+        "moving_time_min": round(activity.get("moving_time", 0) / 60),
+        "elevation_gain_m": round(activity.get("total_elevation_gain", 0), 1),
+        "type": activity.get("type"),
+        "start_date": activity.get("start_date"),
+    }
 
 
 def get_latest_strava_activity():
@@ -215,18 +253,134 @@ def get_latest_strava_activity():
     if not activities:
         return None, "No activities found in Strava."
 
-    activity = activities[0]
+    return simplify_activity(activities[0]), None
 
-    simplified = {
-        "name": activity.get("name"),
-        "distance_km": round(activity.get("distance", 0) / 1000, 2),
-        "moving_time_min": round(activity.get("moving_time", 0) / 60),
-        "elevation_gain_m": round(activity.get("total_elevation_gain", 0), 1),
-        "type": activity.get("type"),
-        "start_date": activity.get("start_date"),
-    }
 
-    return simplified, None
+def get_strava_activity_by_id(activity_id: int):
+    access_token = get_valid_strava_access_token()
+
+    if not access_token:
+        return None, "No Strava token found. First visit /connect-strava and authorize."
+
+    response = requests.get(
+        f"https://www.strava.com/api/v3/activities/{activity_id}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30,
+    )
+
+    if response.status_code != 200:
+        return None, f"Failed to fetch activity {activity_id}: {response.status_code} - {response.text}"
+
+    activity = response.json()
+    return simplify_activity(activity), None
+
+
+def get_recent_strava_activities(per_page: int = 30):
+    access_token = get_valid_strava_access_token()
+
+    if not access_token:
+        return None, "No Strava token found. First visit /connect-strava and authorize."
+
+    response = requests.get(
+        "https://www.strava.com/api/v3/athlete/activities",
+        headers={"Authorization": f"Bearer {access_token}"},
+        params={"per_page": per_page, "page": 1},
+        timeout=30,
+    )
+
+    if response.status_code != 200:
+        return None, f"Failed to fetch recent activities: {response.status_code} - {response.text}"
+
+    return response.json(), None
+
+
+def parse_strava_datetime(dt_str: str) -> datetime:
+    return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+
+
+def build_weekly_context() -> tuple[str | None, str | None]:
+    activities, error = get_recent_strava_activities(per_page=30)
+
+    if error:
+        return None, error
+
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
+
+    current_week = []
+    previous_week = []
+
+    for activity in activities:
+        start_date = activity.get("start_date")
+        activity_type = activity.get("type")
+
+        if not start_date or activity_type not in ["Ride", "VirtualRide"]:
+            continue
+
+        dt = parse_strava_datetime(start_date)
+
+        if dt >= seven_days_ago:
+            current_week.append(activity)
+        elif fourteen_days_ago <= dt < seven_days_ago:
+            previous_week.append(activity)
+
+    current_count = len(current_week)
+    current_distance = round(sum(a.get("distance", 0) for a in current_week) / 1000, 1)
+    previous_distance = round(sum(a.get("distance", 0) for a in previous_week) / 1000, 1)
+
+    if previous_distance == 0 and current_distance > 0:
+        trend = "Em relação aos 7 dias anteriores, seu volume está em alta."
+    elif current_distance > previous_distance * 1.1:
+        trend = "Em relação aos 7 dias anteriores, seu volume está em alta."
+    elif current_distance < previous_distance * 0.9:
+        trend = "Em relação aos 7 dias anteriores, seu volume está em baixa."
+    else:
+        trend = "Em relação aos 7 dias anteriores, seu volume está estável."
+
+    summary = (
+        f"{current_count} pedais nos últimos 7 dias, total de {current_distance} km.\n"
+        f"{trend}"
+    )
+
+    return summary, None
+
+
+def build_activity_message(activity: dict) -> str:
+    tipo = translate_activity_type(activity["type"])
+    ride_classification = classify_ride(activity)
+    interpretation = interpret_ride(activity, ride_classification)
+    next_day = suggest_next_day(activity, ride_classification)
+    tempo_formatado = format_duration_pt_br(activity["moving_time_min"])
+
+    data_formatada = ""
+    if activity.get("start_date"):
+        data_formatada = format_datetime_pt_br(activity["start_date"])
+
+    weekly_summary, weekly_error = build_weekly_context()
+
+    contexto_bloco = ""
+    if weekly_summary and not weekly_error:
+        contexto_bloco = (
+            "Seu contexto recente:\n"
+            f"{weekly_summary}\n\n"
+        )
+
+    data_bloco = ""
+    if data_formatada:
+        data_bloco = f"{data_formatada}\n\n"
+
+    return (
+        "Bom pedal 🚴\n\n"
+        f"{activity['name']}\n"
+        f"{tipo} • {activity['distance_km']} km • {tempo_formatado} • {activity['elevation_gain_m']} m\n"
+        f"{data_bloco}"
+        "Leitura do treino:\n"
+        f"{interpretation}\n\n"
+        f"{contexto_bloco}"
+        "Sugestão para amanhã:\n"
+        f"{next_day}"
+    )
 
 
 @app.get("/")
@@ -256,9 +410,7 @@ def connect_strava():
     redirect_uri = os.getenv("STRAVA_REDIRECT_URI")
 
     if not client_id or not redirect_uri:
-        return {
-            "error": "Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env"
-        }
+        return {"error": "Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env"}
 
     url = (
         "https://www.strava.com/oauth/authorize"
@@ -277,10 +429,8 @@ def strava_callback(code: str):
     client_id = os.getenv("STRAVA_CLIENT_ID")
     client_secret = os.getenv("STRAVA_CLIENT_SECRET")
 
-    token_url = "https://www.strava.com/oauth/token"
-
     response = requests.post(
-        token_url,
+        "https://www.strava.com/oauth/token",
         data={
             "client_id": client_id,
             "client_secret": client_secret,
@@ -324,19 +474,7 @@ def get_strava_activities():
         }
 
     activities = response.json()
-
-    simplified = []
-    for activity in activities:
-        simplified.append(
-            {
-                "name": activity.get("name"),
-                "distance_km": round(activity.get("distance", 0) / 1000, 2),
-                "moving_time_min": round(activity.get("moving_time", 0) / 60),
-                "elevation_gain_m": activity.get("total_elevation_gain", 0),
-                "type": activity.get("type"),
-                "start_date": activity.get("start_date"),
-            }
-        )
+    simplified = [simplify_activity(activity) for activity in activities]
 
     return {
         "count": len(simplified),
@@ -359,3 +497,61 @@ def send_latest_activity_whatsapp():
         "message_sid": message_sid,
         "activity": activity,
     }
+
+
+@app.get("/debug/weekly-context")
+def debug_weekly_context():
+    weekly_summary, weekly_error = build_weekly_context()
+    return {
+        "weekly_summary": weekly_summary,
+        "weekly_error": weekly_error,
+    }
+
+
+@app.get("/webhook/strava")
+def verify_strava_webhook(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+):
+    expected_token = os.getenv("STRAVA_VERIFY_TOKEN")
+
+    if hub_mode != "subscribe" or hub_verify_token != expected_token:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid webhook verification request"},
+        )
+
+    return {"hub.challenge": hub_challenge}
+
+
+@app.post("/webhook/strava")
+async def receive_strava_webhook(request: Request):
+    event = await request.json()
+
+    print(
+        f"Strava webhook event received: object_type={event.get('object_type')} "
+        f"aspect_type={event.get('aspect_type')} object_id={event.get('object_id')} "
+        f"event_time={event.get('event_time')}"
+    )
+
+    if has_processed_event(event):
+        print("Duplicate webhook event ignored.")
+        return {"received": True, "duplicate": True}
+
+    object_type = event.get("object_type")
+    aspect_type = event.get("aspect_type")
+
+    if object_type == "activity" and aspect_type == "create":
+        activity_id = event.get("object_id")
+        activity, error = get_strava_activity_by_id(activity_id)
+
+        if not error and activity:
+            body = build_activity_message(activity)
+            send_whatsapp_message(body)
+            mark_event_as_processed(event)
+            print("Webhook processed and message sent.")
+        else:
+            print(f"Failed to fetch activity: {error}")
+
+    return {"received": True}
