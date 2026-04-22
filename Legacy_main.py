@@ -155,6 +155,17 @@ def translate_activity_type(activity_type: str) -> str:
     }
     return type_map.get(activity_type, activity_type)
 
+def normalize_activity_name(name: str) -> str:
+    name_lower = name.lower()
+
+    if "morning ride" in name_lower:
+        return "Pedalada matinal"
+    if "afternoon ride" in name_lower:
+        return "Pedalada da tarde"
+    if "evening ride" in name_lower:
+        return "Pedalada noturna"
+
+    return name
 
 def classify_ride(activity: dict) -> str:
     distance = activity["distance_km"]
@@ -421,6 +432,7 @@ def build_activity_message(activity: dict) -> str:
     elevacao = int(activity["elevation_gain_m"])
 
     titulo = build_ride_title(activity, ride_classification)
+    nome = normalize_activity_name(activity["name"])
 
     data_formatada = ""
     if activity.get("start_date"):
@@ -435,7 +447,7 @@ def build_activity_message(activity: dict) -> str:
 
     return (
         f"{titulo}\n\n"
-        f"{activity['name']}\n"
+        f"{nome}\n"
         f"{tipo} • {distancia} km • {tempo_formatado} • {elevacao} m\n"
         f"{data_formatada}\n\n"
         "Leitura do treino:\n"

@@ -4,3 +4,4 @@ __pycache__/
 strava_tokens.json
 TwilioRecoveryCode.txt
 stravaauth.txt
+processed_events.json
