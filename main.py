@@ -18,6 +18,7 @@ app = FastAPI(title="Strava WhatsApp Copilot")
 TOKEN_FILE = Path("strava_tokens.json")
 PROCESSED_EVENTS_FILE = Path("processed_events.json")
 
+
 def save_strava_tokens(token_data: dict) -> None:
     TOKEN_FILE.write_text(json.dumps(token_data, indent=2), encoding="utf-8")
 
@@ -31,6 +32,7 @@ def load_strava_tokens() -> dict | None:
         return None
 
     return json.loads(content)
+
 
 def load_processed_events() -> set[str]:
     if not PROCESSED_EVENTS_FILE.exists():
@@ -54,7 +56,6 @@ def build_event_key(event: dict) -> str:
     object_type = event.get("object_type", "")
     aspect_type = event.get("aspect_type", "")
     object_id = event.get("object_id", "")
-
     return f"{object_type}:{aspect_type}:{object_id}"
 
 
@@ -69,6 +70,7 @@ def mark_event_as_processed(event: dict) -> None:
     processed = load_processed_events()
     processed.add(event_key)
     save_processed_events(processed)
+
 
 def refresh_strava_token_if_needed() -> dict | None:
     token_data = load_strava_tokens()
@@ -188,17 +190,28 @@ def interpret_ride(activity: dict, ride_classification: str) -> str:
     return "Esse treino teve um bom estímulo geral."
 
 
-def suggest_next_day(activity: dict, ride_classification: str) -> str:
+def suggest_next_day(
+    activity: dict,
+    ride_classification: str,
+    weekly_distance: float = 0,
+) -> str:
     moving_time = activity["moving_time_min"]
+
+    if weekly_distance >= 500:
+        return "Amanhã vale priorizar recuperação completa."
 
     if ride_classification == "longo":
         return "Amanhã vale priorizar recuperação: descanso ou giro bem leve."
+
     if ride_classification == "de escalada":
         return "Amanhã pode ser um bom dia para rodar leve e soltar as pernas."
+
     if moving_time >= 150:
         return "Como o tempo de esforço foi alto, o ideal amanhã é recuperação."
+
     if ride_classification == "curto":
         return "Se estiver bem, amanhã pode encaixar um treino mais estruturado."
+
     return "Se estiver se sentindo bem, faça um giro leve. Se estiver cansado, descanse."
 
 
@@ -207,6 +220,10 @@ def format_datetime_pt_br(iso_string: str) -> str:
     tz = pytz.timezone("America/Sao_Paulo")
     dt_local = dt_utc.astimezone(tz)
     return dt_local.strftime("%d/%m às %H:%M")
+
+
+def format_number_pt_br(value: float, decimals: int = 1) -> str:
+    return f"{value:.{decimals}f}".replace(".", ",")
 
 
 def format_duration_pt_br(total_minutes: float) -> str:
@@ -298,7 +315,29 @@ def parse_strava_datetime(dt_str: str) -> datetime:
     return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
 
 
-def build_weekly_context() -> tuple[str | None, str | None]:
+def build_ride_title(activity: dict, ride_classification: str) -> str:
+    name = activity.get("name", "").lower()
+
+    if "morning" in name or "manhã" in name:
+        return "Pedalada matinal 🚴"
+    if "evening" in name or "noite" in name:
+        return "Pedalada noturna 🌙"
+    if "commute" in name:
+        return "Pedal do dia a dia 🚲"
+
+    if ride_classification == "longo":
+        return "Treino longo 🚴"
+    if ride_classification == "de escalada":
+        return "Treino de subida ⛰️"
+    if ride_classification == "moderado":
+        return "Bom pedal 🚴"
+    if ride_classification == "curto":
+        return "Giro rápido ⚡"
+
+    return "Bom pedal 🚴"
+
+
+def build_weekly_context() -> tuple[dict | None, str | None]:
     activities, error = get_recent_strava_activities(per_page=30)
 
     if error:
@@ -338,43 +377,67 @@ def build_weekly_context() -> tuple[str | None, str | None]:
     else:
         trend = "Em relação aos 7 dias anteriores, seu volume está estável."
 
+    extra = ""
+    if current_distance >= 500:
+        extra = "Volume bem alto na última semana — atenção à recuperação."
+    elif current_distance >= 300:
+        extra = "Boa carga recente, vale cuidar da recuperação."
+
     summary = (
-        f"{current_count} pedais nos últimos 7 dias, total de {current_distance} km.\n"
+        f"{current_count} pedais nos últimos 7 dias • {format_number_pt_br(current_distance)} km\n"
         f"{trend}"
     )
 
-    return summary, None
+    if extra:
+        summary += f"\n{extra}"
+
+    return {
+        "summary": summary,
+        "current_count": current_count,
+        "current_distance": current_distance,
+        "previous_distance": previous_distance,
+        "trend": trend,
+        "extra": extra,
+    }, None
 
 
 def build_activity_message(activity: dict) -> str:
     tipo = translate_activity_type(activity["type"])
     ride_classification = classify_ride(activity)
+
+    weekly_context, weekly_error = build_weekly_context()
+    weekly_distance = 0.0
+    weekly_summary = ""
+
+    if weekly_context and not weekly_error:
+        weekly_distance = weekly_context.get("current_distance", 0.0)
+        weekly_summary = weekly_context.get("summary", "")
+
     interpretation = interpret_ride(activity, ride_classification)
-    next_day = suggest_next_day(activity, ride_classification)
+    next_day = suggest_next_day(activity, ride_classification, weekly_distance)
+
     tempo_formatado = format_duration_pt_br(activity["moving_time_min"])
+    distancia = format_number_pt_br(activity["distance_km"])
+    elevacao = int(activity["elevation_gain_m"])
+
+    titulo = build_ride_title(activity, ride_classification)
 
     data_formatada = ""
     if activity.get("start_date"):
         data_formatada = format_datetime_pt_br(activity["start_date"])
 
-    weekly_summary, weekly_error = build_weekly_context()
-
     contexto_bloco = ""
-    if weekly_summary and not weekly_error:
+    if weekly_summary:
         contexto_bloco = (
             "Seu contexto recente:\n"
             f"{weekly_summary}\n\n"
         )
 
-    data_bloco = ""
-    if data_formatada:
-        data_bloco = f"{data_formatada}\n\n"
-
     return (
-        "Bom pedal 🚴\n\n"
+        f"{titulo}\n\n"
         f"{activity['name']}\n"
-        f"{tipo} • {activity['distance_km']} km • {tempo_formatado} • {activity['elevation_gain_m']} m\n"
-        f"{data_bloco}"
+        f"{tipo} • {distancia} km • {tempo_formatado} • {elevacao} m\n"
+        f"{data_formatada}\n\n"
         "Leitura do treino:\n"
         f"{interpretation}\n\n"
         f"{contexto_bloco}"
@@ -501,9 +564,9 @@ def send_latest_activity_whatsapp():
 
 @app.get("/debug/weekly-context")
 def debug_weekly_context():
-    weekly_summary, weekly_error = build_weekly_context()
+    weekly_context, weekly_error = build_weekly_context()
     return {
-        "weekly_summary": weekly_summary,
+        "weekly_context": weekly_context,
         "weekly_error": weekly_error,
     }
 
