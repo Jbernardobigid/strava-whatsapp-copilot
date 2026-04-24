@@ -1,3 +1,4 @@
+from app.services.ai_service import generate_ai_training_interpretation
 from app.services.strava_service import build_weekly_context
 from app.utils.formatters import (
     format_datetime_pt_br,
@@ -108,7 +109,13 @@ def build_activity_message(activity: dict) -> str:
         weekly_distance = weekly_context.get("current_distance", 0.0)
         weekly_summary = weekly_context.get("summary", "")
 
-    interpretation = interpret_ride(activity, ride_classification)
+    fallback_interpretation = interpret_ride(activity, ride_classification)
+    interpretation = generate_ai_training_interpretation(
+        activity=activity,
+        ride_classification=ride_classification,
+        weekly_context=weekly_context,
+        fallback_text=fallback_interpretation,
+    )
     next_day = suggest_next_day(activity, ride_classification, weekly_distance)
 
     tempo_formatado = format_duration_pt_br(activity["moving_time_min"])
