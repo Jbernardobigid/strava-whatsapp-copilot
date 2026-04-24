@@ -1,6 +1,10 @@
 from pathlib import Path
 import sys
 
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 # Make sure the project root is on sys.path when running from /scripts
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
@@ -43,6 +47,10 @@ def recover_missed_activities(limit: int = 10) -> None:
 
         if event_key in processed:
             print(f"Skipping already processed activity {activity_id}")
+            logger.info(
+                "Skipped already processed activity during recovery: activity_id=%s",
+                activity_id,
+            )
             skipped_count += 1
             continue
 
@@ -54,8 +62,17 @@ def recover_missed_activities(limit: int = 10) -> None:
             processed.add(event_key)
             recovered_count += 1
             print(f"Recovered activity {activity_id}: {activity.get('name')}")
+            logger.info(
+                "Recovered missed activity: activity_id=%s name=%s",
+                activity_id,
+                activity.get("name"),
+            )
         except Exception as exc:
-            print(f"Failed to send activity {activity_id}: {exc}")
+            logger.error(
+                "Failed to send recovered activity: activity_id=%s error=%s",
+                activity_id,
+                exc,
+            )
 
     save_processed_events(processed)
 

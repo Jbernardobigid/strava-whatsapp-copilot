@@ -8,7 +8,11 @@ from app.config import (
     STRAVA_CLIENT_SECRET,
     STRAVA_REDIRECT_URI,
 )
+from app.utils.formatters import format_number_pt_br
+from app.utils.logger import get_logger
 from app.utils.storage import load_strava_tokens, save_strava_tokens
+
+logger = get_logger(__name__)
 
 
 def refresh_strava_token_if_needed() -> dict | None:
@@ -24,8 +28,11 @@ def refresh_strava_token_if_needed() -> dict | None:
 
     now = int(time.time())
 
+    # Refresh if expired or close to expiring
     if now < expires_at - 300:
         return token_data
+
+    logger.info("Refreshing Strava access token")
 
     response = requests.post(
         "https://www.strava.com/oauth/token",
@@ -39,10 +46,18 @@ def refresh_strava_token_if_needed() -> dict | None:
     )
 
     if response.status_code != 200:
+        logger.error(
+            "Failed to refresh Strava token: status_code=%s response=%s",
+            response.status_code,
+            response.text,
+        )
         raise Exception(f"Failed to refresh Strava token: {response.text}")
 
     new_token_data = response.json()
     save_strava_tokens(new_token_data)
+
+    logger.info("Strava access token refreshed successfully")
+
     return new_token_data
 
 
@@ -50,11 +65,13 @@ def get_valid_strava_access_token() -> str | None:
     token_data = refresh_strava_token_if_needed()
     if not token_data:
         return None
+
     return token_data.get("access_token")
 
 
 def build_strava_auth_url() -> dict:
     if not STRAVA_CLIENT_ID or not STRAVA_REDIRECT_URI:
+        logger.error("Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env")
         return {"error": "Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env"}
 
     url = (
@@ -66,10 +83,14 @@ def build_strava_auth_url() -> dict:
         "&scope=read,activity:read"
     )
 
+    logger.info("Generated Strava authorization URL")
+
     return {"auth_url": url}
 
 
 def exchange_code_for_token(code: str) -> dict:
+    logger.info("Exchanging Strava authorization code for token")
+
     response = requests.post(
         "https://www.strava.com/oauth/token",
         data={
@@ -81,13 +102,29 @@ def exchange_code_for_token(code: str) -> dict:
         timeout=30,
     )
 
+    if response.status_code != 200:
+        logger.error(
+            "Failed to exchange Strava authorization code: status_code=%s response=%s",
+            response.status_code,
+            response.text,
+        )
+        return {"error": response.text}
+
     data = response.json()
     save_strava_tokens(data)
+
+    athlete = data.get("athlete", {})
+    logger.info(
+        "Strava token saved successfully: athlete_id=%s",
+        athlete.get("id"),
+    )
+
     return data
 
 
 def simplify_activity(activity: dict) -> dict:
     return {
+        "id": activity.get("id"),
         "name": activity.get("name"),
         "distance_km": round(activity.get("distance", 0) / 1000, 2),
         "moving_time_min": round(activity.get("moving_time", 0) / 60),
@@ -111,14 +148,28 @@ def get_latest_strava_activity():
     )
 
     if response.status_code != 200:
+        logger.error(
+            "Failed to fetch latest Strava activity: status_code=%s response=%s",
+            response.status_code,
+            response.text,
+        )
         return None, f"Failed to fetch activities: {response.status_code} - {response.text}"
 
     activities = response.json()
 
     if not activities:
+        logger.info("No Strava activities found when fetching latest activity")
         return None, "No activities found in Strava."
 
-    return simplify_activity(activities[0]), None
+    latest_activity = simplify_activity(activities[0])
+
+    logger.info(
+        "Fetched latest Strava activity: activity_id=%s name=%s",
+        latest_activity.get("id"),
+        latest_activity.get("name"),
+    )
+
+    return latest_activity, None
 
 
 def get_strava_activity_by_id(activity_id: int):
@@ -134,10 +185,24 @@ def get_strava_activity_by_id(activity_id: int):
     )
 
     if response.status_code != 200:
+        logger.error(
+            "Failed to fetch Strava activity by id: activity_id=%s status_code=%s response=%s",
+            activity_id,
+            response.status_code,
+            response.text,
+        )
         return None, f"Failed to fetch activity {activity_id}: {response.status_code} - {response.text}"
 
     activity = response.json()
-    return simplify_activity(activity), None
+    simplified_activity = simplify_activity(activity)
+
+    logger.info(
+        "Fetched Strava activity by id: activity_id=%s name=%s",
+        activity_id,
+        simplified_activity.get("name"),
+    )
+
+    return simplified_activity, None
 
 
 def get_recent_strava_activities(per_page: int = 30):
@@ -154,9 +219,22 @@ def get_recent_strava_activities(per_page: int = 30):
     )
 
     if response.status_code != 200:
+        logger.error(
+            "Failed to fetch recent Strava activities: status_code=%s response=%s",
+            response.status_code,
+            response.text,
+        )
         return None, f"Failed to fetch recent activities: {response.status_code} - {response.text}"
 
-    return response.json(), None
+    activities = response.json()
+
+    logger.info(
+        "Fetched recent Strava activities: per_page=%s count=%s",
+        per_page,
+        len(activities),
+    )
+
+    return activities, None
 
 
 def parse_strava_datetime(dt_str: str) -> datetime:
@@ -169,8 +247,9 @@ def build_weekly_context() -> tuple[dict | None, str | None]:
     if error:
         return None, error
 
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    fourteen_days_ago = datetime.now(timezone.utc) - timedelta(days=14)
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
 
     current_week = []
     previous_week = []
@@ -208,8 +287,6 @@ def build_weekly_context() -> tuple[dict | None, str | None]:
     elif current_distance >= 300:
         extra = "Boa carga recente, vale cuidar da recuperação."
 
-    from app.utils.formatters import format_number_pt_br
-
     summary = (
         f"{current_count} pedais nos últimos 7 dias • {format_number_pt_br(current_distance)} km\n"
         f"{trend}"
@@ -217,6 +294,13 @@ def build_weekly_context() -> tuple[dict | None, str | None]:
 
     if extra:
         summary += f"\n{extra}"
+
+    logger.info(
+        "Built weekly context: current_count=%s current_distance=%s previous_distance=%s",
+        current_count,
+        current_distance,
+        previous_distance,
+    )
 
     return {
         "summary": summary,

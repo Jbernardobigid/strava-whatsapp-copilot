@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
-
+from app.utils.logger import get_logger
 from app.config import STRAVA_VERIFY_TOKEN
 from app.services.coaching_service import build_activity_message
 from app.services.strava_service import build_weekly_context, get_strava_activity_by_id
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.storage import has_processed_event, mark_event_as_processed
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -38,14 +40,19 @@ def verify_strava_webhook(
 async def receive_strava_webhook(request: Request):
     event = await request.json()
 
-    print(
-        f"Strava webhook event received: object_type={event.get('object_type')} "
-        f"aspect_type={event.get('aspect_type')} object_id={event.get('object_id')} "
-        f"event_time={event.get('event_time')}"
+    logger.info(
+        "Strava webhook event received: object_type=%s aspect_type=%s object_id=%s event_time=%s",
+        event.get("object_type"),
+        event.get("aspect_type"),
+        event.get("object_id"),
+        event.get("event_time"),
     )
 
     if has_processed_event(event):
-        print("Duplicate webhook event ignored.")
+        logger.info(
+            "Duplicate webhook event ignored: object_id=%s",
+            event.get("object_id"),
+        )
         return {"received": True, "duplicate": True}
 
     object_type = event.get("object_type")
@@ -59,8 +66,15 @@ async def receive_strava_webhook(request: Request):
             body = build_activity_message(activity)
             send_whatsapp_message(body)
             mark_event_as_processed(event)
-            print("Webhook processed and message sent.")
+            logger.info(
+                "Webhook processed and WhatsApp message sent: object_id=%s",
+                activity_id,
+            )
         else:
-            print(f"Failed to fetch activity: {error}")
+            logger.error(
+                "Failed to fetch activity from webhook: object_id=%s error=%s",
+                activity_id,
+                error,
+            )
 
     return {"received": True}

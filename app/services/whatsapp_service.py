@@ -6,6 +6,9 @@ from app.config import (
     TWILIO_WHATSAPP_NUMBER,
     YOUR_WHATSAPP_NUMBER,
 )
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def send_whatsapp_message(body: str) -> str:
@@ -28,6 +31,12 @@ def send_whatsapp_message(body: str) -> str:
         body=body,
         from_=TWILIO_WHATSAPP_NUMBER,
         to=YOUR_WHATSAPP_NUMBER,
+    )
+
+    logger.info(
+        "WhatsApp message accepted by Twilio: sid=%s to=%s",
+        message.sid,
+        YOUR_WHATSAPP_NUMBER,
     )
 
     return message.sid
