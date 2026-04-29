@@ -9,3 +9,7 @@ logs/
 Create a detailed deck for new user.txt
 activity_*.json
 railwaykey*
+id_ed25519
+id_ed25519.pub
+*.pem
+*.key
