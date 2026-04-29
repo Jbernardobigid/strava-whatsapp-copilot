@@ -181,6 +181,14 @@ https://web-production-d4872.up.railway.app/strava/callback
 - Standardized the raw activity export helper path to `scripts/export_activity_json.py`.
 - Updated project documentation to use the standardized script path.
 
+## 2026-04-30 — Supabase PostgreSQL duplicate persistence
+
+- Added SQLAlchemy database setup configured by `DATABASE_URL`.
+- Added a `processed_events` table model with a unique constraint on Strava object ID, object type, and aspect type.
+- Replaced `processed_events.json` duplicate tracking with database-backed helper functions.
+- Updated the recovery script to use the same database duplicate tracking path.
+- Added unit coverage for repeated Strava events so duplicate deliveries are only recorded once.
+
 ## Next session recommended starting point
 
 1. Check Railway health endpoint:
@@ -193,10 +201,10 @@ https://web-production-d4872.up.railway.app/health
 
 3. Confirm WhatsApp delivery from deployed app.
 
-4. Start persistence hardening:
+4. Continue persistence hardening:
 
 ```text
-processed_events.json → database
+strava_tokens.json → database or secure Railway variable
 sent message state → database
 Twilio status callback → database update
 ```
