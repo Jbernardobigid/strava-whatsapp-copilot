@@ -174,6 +174,13 @@ web-production-d4872.up.railway.app
 https://web-production-d4872.up.railway.app/strava/callback
 ```
 
+## 2026-04-30 — Repository hygiene cleanup
+
+- Removed tracked `processed_events.json` from the repository while keeping the runtime filename ignored.
+- Added explicit ignore patterns for SSH/private key files.
+- Standardized the raw activity export helper path to `scripts/export_activity_json.py`.
+- Updated project documentation to use the standardized script path.
+
 ## Next session recommended starting point
 
 1. Check Railway health endpoint:
