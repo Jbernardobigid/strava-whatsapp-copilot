@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 
+os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 
