@@ -79,6 +79,7 @@ The following features are currently working:
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
 - Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, and ride classification.
+- Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
 
@@ -104,8 +105,8 @@ app/
 
 scripts/
 ├── recover_missed_activities.py
-├── resend_activity.py              # optional/manual helper if created
-└── export_activity_json.py          # optional/manual helper if created
+├── resend_activity.py
+└── export_activity_json.py
 ```
 
 ## 5. Current message behavior
