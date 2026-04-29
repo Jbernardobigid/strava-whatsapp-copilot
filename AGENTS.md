@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Confirmation behavior
+
+When starting a task, mention that you have read `AGENTS.md` and briefly list the most relevant project rules for the task.
+
 ## Project overview
 
 This project is TrainingBuddy, a Strava → WhatsApp cycling copilot.
@@ -43,3 +47,4 @@ Before proposing changes, prefer running:
 
 ```bash
 python -m compileall app scripts
+```
