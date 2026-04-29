@@ -1,7 +1,31 @@
+import importlib.util
 import os
+import sys
+import types
 import unittest
 
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+
+
+def install_stub_if_missing(module_name, module):
+    if importlib.util.find_spec(module_name) is None:
+        sys.modules[module_name] = module
+
+
+dotenv_stub = types.ModuleType("dotenv")
+dotenv_stub.load_dotenv = lambda *args, **kwargs: None
+install_stub_if_missing("dotenv", dotenv_stub)
+
+openai_stub = types.ModuleType("openai")
+openai_stub.OpenAI = lambda *args, **kwargs: object()
+install_stub_if_missing("openai", openai_stub)
+
+requests_stub = types.ModuleType("requests")
+install_stub_if_missing("requests", requests_stub)
+
+pytz_stub = types.ModuleType("pytz")
+pytz_stub.timezone = lambda *args, **kwargs: None
+install_stub_if_missing("pytz", pytz_stub)
 
 from app.services.coaching_service import classify_ride
 from app.utils.formatters import format_duration_pt_br, normalize_activity_name
