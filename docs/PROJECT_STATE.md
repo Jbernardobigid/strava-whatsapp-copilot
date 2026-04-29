@@ -1,6 +1,6 @@
 # TrainingBuddy / Strava WhatsApp Copilot — Project State
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-30_
 
 ## 1. Project overview
 
@@ -78,6 +78,7 @@ The following features are currently working:
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, and ride classification.
 
 ## 4. Current architecture summary
 
@@ -245,6 +246,12 @@ Future fix:
 - Associate Strava owner IDs with users.
 
 ## 9. Important commands
+
+Run tests:
+
+```bash
+python -m unittest discover
+```
 
 Run locally:
 
