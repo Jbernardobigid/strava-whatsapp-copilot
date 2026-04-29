@@ -15,6 +15,8 @@ Strava webhook
         ↓
 Railway-hosted FastAPI app
         ↓
+Check processed_events in Supabase PostgreSQL
+        ↓
 Fetch full Strava activity by object_id
         ↓
 Classify ride using metrics
@@ -22,6 +24,8 @@ Classify ride using metrics
 Generate AI-assisted training interpretation
         ↓
 Send WhatsApp message through Twilio
+        ↓
+Record processed event in PostgreSQL
 ```
 
 The product is currently focused on one user, one Strava account, and one WhatsApp recipient.
@@ -72,13 +76,13 @@ The following features are currently working:
 - Fetching exact activity by webhook `object_id`.
 - WhatsApp sending through Twilio.
 - PT-BR message generation.
-- Duplicate webhook protection.
+- Duplicate webhook protection backed by a Supabase PostgreSQL `processed_events` table through `DATABASE_URL`.
 - Recovery script for missed activities.
 - Manual resend by activity ID.
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
-- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, and ride classification.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, and duplicate event database handling.
 - Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
@@ -89,6 +93,8 @@ The project was refactored from one large `main.py` into a modular structure:
 app/
 ├── main.py
 ├── config.py
+├── database.py
+├── models.py
 ├── routes/
 │   ├── health.py
 │   ├── strava.py
@@ -108,6 +114,8 @@ scripts/
 ├── resend_activity.py
 └── export_activity_json.py
 ```
+
+Duplicate webhook protection now uses PostgreSQL instead of `processed_events.json`. The app initializes the first database table safely at startup with SQLAlchemy metadata creation.
 
 ## 5. Current message behavior
 
@@ -184,20 +192,17 @@ The classification `intervalado` should take priority when strong intensity sign
 
 ## 8. Current known limitations
 
-### 8.1 Railway filesystem is temporary
+### 8.1 Persistence is partially database-backed
 
-The app still uses file-based persistence:
+Duplicate protection now uses a PostgreSQL `processed_events` table configured by `DATABASE_URL`.
+
+The app still uses file-based Strava token persistence:
 
 - `strava_tokens.json`
-- `processed_events.json`
 
-This is acceptable for MVP/dev, but not ideal for production. Railway storage can reset on redeploy, which means:
+This is acceptable for MVP/dev, but not ideal for production. Railway storage can reset on redeploy, which means token persistence may break if not managed through env/database.
 
-- processed events can be forgotten
-- duplicate messages may happen after redeploy
-- token persistence may break if not managed through env/database
-
-Recommended future fix: move persistence to Supabase, PostgreSQL, Redis, or another durable store.
+Recommended future fix: move Strava token storage to Supabase, PostgreSQL, or another durable store.
 
 ### 8.2 Twilio WhatsApp 24-hour/freeform window
 
@@ -266,6 +271,12 @@ Production start command through Procfile:
 web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
+Required database variable:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+```
+
 Check local health:
 
 ```text
@@ -292,8 +303,8 @@ The next recommended milestone is persistence hardening.
 
 Suggested order:
 
-1. Move `processed_events.json` to database storage.
-2. Move token storage to database or secure Railway variables.
-3. Add Twilio status callback endpoint.
-4. Track message delivery states.
+1. Move token storage to database or secure Railway variables.
+2. Add Twilio status callback endpoint.
+3. Track message delivery states.
+4. Add sent-message persistence.
 5. Add multi-user model only after persistence is stable.
