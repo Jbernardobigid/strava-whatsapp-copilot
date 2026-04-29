@@ -9,12 +9,17 @@ from app.utils.logger import get_logger
 from app.services.coaching_service import build_activity_message
 from app.services.strava_service import get_recent_strava_activities, simplify_activity
 from app.services.whatsapp_service import send_whatsapp_message
-from app.utils.storage import load_processed_events, save_processed_events
+from app.utils.storage import has_processed_event, mark_event_as_processed
 
 logger = get_logger(__name__)
 
-def build_recovery_event_key(activity_id: int) -> str:
-    return f"activity:create:{activity_id}"
+
+def build_recovery_event(activity_id: int) -> dict:
+    return {
+        "object_type": "activity",
+        "aspect_type": "create",
+        "object_id": activity_id,
+    }
 
 
 def recover_missed_activities(limit: int = 10) -> None:
@@ -24,7 +29,6 @@ def recover_missed_activities(limit: int = 10) -> None:
         print(f"Error fetching activities: {error}")
         return
 
-    processed = load_processed_events()
     recovered_count = 0
     skipped_count = 0
 
@@ -41,9 +45,9 @@ def recover_missed_activities(limit: int = 10) -> None:
             skipped_count += 1
             continue
 
-        event_key = build_recovery_event_key(activity_id)
+        event = build_recovery_event(activity_id)
 
-        if event_key in processed:
+        if has_processed_event(event):
             print(f"Skipping already processed activity {activity_id}")
             logger.info(
                 "Skipped already processed activity during recovery: activity_id=%s",
@@ -57,7 +61,7 @@ def recover_missed_activities(limit: int = 10) -> None:
 
         try:
             send_whatsapp_message(body)
-            processed.add(event_key)
+            mark_event_as_processed(event)
             recovered_count += 1
             print(f"Recovered activity {activity_id}: {activity.get('name')}")
             logger.info(
@@ -71,8 +75,6 @@ def recover_missed_activities(limit: int = 10) -> None:
                 activity_id,
                 exc,
             )
-
-    save_processed_events(processed)
 
     print()
     print("Recovery finished.")
