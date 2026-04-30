@@ -1,8 +1,39 @@
+import importlib.util
 import os
+import sys
+import types
 import unittest
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
+
+
+def install_stub_if_missing(module_name, module):
+    if importlib.util.find_spec(module_name) is None:
+        sys.modules[module_name] = module
+
+
+class StubAPIRouter:
+    def get(self, *args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
+class StubRedirectResponse:
+    def __init__(self, url, status_code=307):
+        self.status_code = status_code
+        self.headers = {"location": url}
+
+
+fastapi_stub = types.ModuleType("fastapi")
+fastapi_stub.APIRouter = StubAPIRouter
+install_stub_if_missing("fastapi", fastapi_stub)
+
+responses_stub = types.ModuleType("fastapi.responses")
+responses_stub.RedirectResponse = StubRedirectResponse
+install_stub_if_missing("fastapi.responses", responses_stub)
 
 from app.routes import strava as strava_routes
 from app.routes.strava import connect_strava, debug_strava_token_status
