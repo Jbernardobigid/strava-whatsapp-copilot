@@ -38,9 +38,11 @@ class StubRedirectResponse:
 fastapi_stub = types.ModuleType("fastapi")
 fastapi_stub.__path__ = []
 fastapi_stub.APIRouter = StubAPIRouter
+fastapi_stub.Request = object
 install_stub_if_missing("fastapi", fastapi_stub)
 if "fastapi" in sys.modules:
     sys.modules["fastapi"].APIRouter = StubAPIRouter
+    sys.modules["fastapi"].Request = object
 
 responses_stub = types.ModuleType("fastapi.responses")
 responses_stub.RedirectResponse = StubRedirectResponse
