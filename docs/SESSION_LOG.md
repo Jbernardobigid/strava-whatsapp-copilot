@@ -189,6 +189,15 @@ https://web-production-d4872.up.railway.app/strava/callback
 - Updated the recovery script to use the same database duplicate tracking path.
 - Added unit coverage for repeated Strava events so duplicate deliveries are only recorded once.
 
+## 2026-04-30 — Database-backed Strava token persistence
+
+- Added `app_users` and `strava_tokens` models for a default-user, multi-user-ready storage shape.
+- Moved Strava token save/load behavior to PostgreSQL when `DATABASE_URL` is configured.
+- Kept local `strava_tokens.json` fallback only when `DATABASE_URL` is absent for local development.
+- Updated token refresh persistence so refreshed access and refresh tokens update the database record.
+- Added `user_id` support on processed events when webhook `owner_id` maps to the current app user.
+- Preserved current one-user behavior and did not change WhatsApp message or AI coaching content.
+
 ## Next session recommended starting point
 
 1. Check Railway health endpoint:
@@ -201,10 +210,10 @@ https://web-production-d4872.up.railway.app/health
 
 3. Confirm WhatsApp delivery from deployed app.
 
-4. Continue persistence hardening:
+4. Continue hardening:
 
 ```text
-strava_tokens.json → database or secure Railway variable
 sent message state → database
 Twilio status callback → database update
+explicit user onboarding → multi-user routing
 ```
