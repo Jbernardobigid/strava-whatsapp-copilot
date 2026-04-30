@@ -9,6 +9,8 @@ os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 
 def install_stub_if_missing(module_name, module):
+    if module_name in sys.modules:
+        return
     if importlib.util.find_spec(module_name) is None:
         sys.modules[module_name] = module
 
@@ -28,12 +30,14 @@ class StubRedirectResponse:
 
 
 fastapi_stub = types.ModuleType("fastapi")
+fastapi_stub.__path__ = []
 fastapi_stub.APIRouter = StubAPIRouter
 install_stub_if_missing("fastapi", fastapi_stub)
 
 responses_stub = types.ModuleType("fastapi.responses")
 responses_stub.RedirectResponse = StubRedirectResponse
-install_stub_if_missing("fastapi.responses", responses_stub)
+if "fastapi.responses" not in sys.modules:
+    sys.modules["fastapi.responses"] = responses_stub
 
 from app.routes import strava as strava_routes
 from app.routes.strava import connect_strava, debug_strava_token_status
