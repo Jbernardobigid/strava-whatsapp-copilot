@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from urllib.parse import urlencode
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
@@ -80,10 +81,10 @@ from app.utils.storage import record_sent_message
 
 class FakeRequest:
     def __init__(self, form_data):
-        self.form_data = form_data
+        self.body_bytes = urlencode(form_data).encode("utf-8")
 
-    async def form(self):
-        return self.form_data
+    async def body(self):
+        return self.body_bytes
 
 
 class TwilioDeliveryTests(unittest.TestCase):
