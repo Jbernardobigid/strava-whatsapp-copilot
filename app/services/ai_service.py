@@ -68,11 +68,12 @@ Qualidade:
 - Prefira afirmações diretas e específicas
 - Escreva como um treinador experiente, de forma objetiva
 
-Ajustes finais de estilo:
-- Evite termos fisiológicos como "frequência cardíaca", "musculatura"
-- Evite expressões como "ideal para" ou "é essencial"
-- Evite linguagem instrutiva
-- Descreva o impacto do treino, não o que deve ser feito
+Ajuste final de estilo:
+- Prefira frases curtas e diretas
+- Evite termos genéricos como "desafio cardiovascular", "evolução"
+- Evite expressões instrutivas como "é essencial", "focar em"
+- Use linguagem de carga/estímulo (ex: leve, moderado, exigente, acúmulo de fadiga)
+- Escreva como uma leitura objetiva do treino, não como recomendação
 """
 
     try:

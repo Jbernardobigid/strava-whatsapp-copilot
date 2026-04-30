@@ -13,16 +13,58 @@ def classify_ride(activity: dict) -> str:
     moving_time = activity["moving_time_min"]
     elevation = activity["elevation_gain_m"]
 
+    average_watts = activity.get("average_watts") or 0
+    weighted_watts = activity.get("weighted_average_watts") or 0
+    max_watts = activity.get("max_watts") or 0
+
+    average_hr = activity.get("average_heartrate") or 0
+    max_hr = activity.get("max_heartrate") or 0
+
+    suffer_score = activity.get("suffer_score") or 0
+    pr_count = activity.get("pr_count") or 0
+    achievement_count = activity.get("achievement_count") or 0
+
+    laps = activity.get("laps") or []
+
+    hard_laps = 0
+    for lap in laps:
+        lap_avg_watts = lap.get("average_watts") or 0
+        lap_avg_hr = lap.get("average_heartrate") or 0
+        lap_max_hr = lap.get("max_heartrate") or 0
+
+        if lap_avg_watts >= 180 or lap_avg_hr >= 160 or lap_max_hr >= 175:
+            hard_laps += 1
+
+    if (
+        max_hr >= 175
+        or max_watts >= 700
+        or weighted_watts >= 180
+        or suffer_score >= 50
+        or pr_count >= 3
+        or hard_laps >= 2
+    ):
+        return "intervalado"
+
     if distance >= 100:
         return "longo"
+
     if elevation >= 1000:
         return "de escalada"
+
     if moving_time < 45:
         return "curto"
+
     if distance >= 50 or moving_time >= 120:
         return "moderado"
-    return "leve"
 
+    if (
+        average_hr > 0 and average_hr < 120
+        and weighted_watts > 0 and weighted_watts < 130
+        and distance < 40
+    ):
+        return "leve"
+
+    return "leve"
 
 def interpret_ride(activity: dict, ride_classification: str) -> str:
     distance = activity["distance_km"]
@@ -49,6 +91,9 @@ def suggest_next_day(
 ) -> str:
     moving_time = activity["moving_time_min"]
 
+    if ride_classification == "intervalado":
+        return "Amanhã vale priorizar recuperação ou um giro bem leve."
+    
     if weekly_distance >= 500:
         return "Amanhã vale priorizar recuperação completa."
 
@@ -78,13 +123,8 @@ def translate_activity_type(activity_type: str) -> str:
 def build_ride_title(activity: dict, ride_classification: str) -> str:
     name = activity.get("name", "").lower()
 
-    if "morning" in name or "manhã" in name:
-        return "Pedalada matinal 🚴"
-    if "evening" in name or "noite" in name:
-        return "Pedalada noturna 🌙"
-    if "commute" in name:
-        return "Pedal do dia a dia 🚲"
-
+    if ride_classification == "intervalado":
+        return "Treino intervalado 🔥"
     if ride_classification == "longo":
         return "Treino longo 🚴"
     if ride_classification == "de escalada":
@@ -93,6 +133,13 @@ def build_ride_title(activity: dict, ride_classification: str) -> str:
         return "Bom pedal 🚴"
     if ride_classification == "curto":
         return "Giro rápido ⚡"
+
+    if "morning" in name or "manhã" in name:
+        return "Pedalada matinal 🚴"
+    if "evening" in name or "noite" in name:
+        return "Pedalada noturna 🌙"
+    if "commute" in name:
+        return "Pedal do dia a dia 🚲"
 
     return "Bom pedal 🚴"
 

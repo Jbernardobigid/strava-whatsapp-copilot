@@ -1,14 +1,13 @@
 from pathlib import Path
 import sys
 
-from app.utils.logger import get_logger
-
 logger = get_logger(__name__)
 
 # Make sure the project root is on sys.path when running from /scripts
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
+from app.utils.logger import get_logger
 from app.services.coaching_service import build_activity_message
 from app.services.strava_service import get_recent_strava_activities, simplify_activity
 from app.services.whatsapp_service import send_whatsapp_message

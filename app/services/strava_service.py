@@ -131,6 +131,29 @@ def simplify_activity(activity: dict) -> dict:
         "elevation_gain_m": round(activity.get("total_elevation_gain", 0), 1),
         "type": activity.get("type"),
         "start_date": activity.get("start_date"),
+
+        # Intensity metrics
+        "average_speed": activity.get("average_speed"),
+        "max_speed": activity.get("max_speed"),
+        "average_watts": activity.get("average_watts"),
+        "weighted_average_watts": activity.get("weighted_average_watts"),
+        "max_watts": activity.get("max_watts"),
+        "kilojoules": activity.get("kilojoules"),
+
+        # Heart rate metrics
+        "has_heartrate": activity.get("has_heartrate"),
+        "average_heartrate": activity.get("average_heartrate"),
+        "max_heartrate": activity.get("max_heartrate"),
+
+        # Strava effort indicators
+        "suffer_score": activity.get("suffer_score"),
+        "achievement_count": activity.get("achievement_count"),
+        "pr_count": activity.get("pr_count"),
+
+        # Structured blocks
+        "laps": activity.get("laps", []),
+        "splits_metric": activity.get("splits_metric", []),
+        "segment_efforts": activity.get("segment_efforts", []),
     }
 
 
