@@ -6,9 +6,9 @@ os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
 from fastapi.responses import RedirectResponse
 
+from app.routes import strava as strava_routes
 from app.routes.strava import connect_strava, debug_strava_token_status
 from app.services import strava_service
-from app.utils import storage
 
 
 class StravaRouteTests(unittest.TestCase):
@@ -29,8 +29,8 @@ class StravaRouteTests(unittest.TestCase):
         self.assertIn("response_type=code", response.headers["location"])
 
     def test_token_status_endpoint_returns_safe_metadata_only(self):
-        original = storage.get_strava_token_status
-        storage.get_strava_token_status = lambda: {
+        original = strava_routes.get_strava_token_status
+        strava_routes.get_strava_token_status = lambda: {
             "token_exists": True,
             "athlete_id": "12345",
             "expires_at": 1234567890,
@@ -41,7 +41,7 @@ class StravaRouteTests(unittest.TestCase):
         try:
             response = debug_strava_token_status()
         finally:
-            storage.get_strava_token_status = original
+            strava_routes.get_strava_token_status = original
 
         self.assertEqual(response["token_exists"], True)
         self.assertEqual(response["athlete_id"], "12345")
