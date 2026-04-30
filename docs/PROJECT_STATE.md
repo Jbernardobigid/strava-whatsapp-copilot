@@ -27,10 +27,14 @@ Generate AI-assisted training interpretation
         ↓
 Send WhatsApp message through Twilio
         ↓
+Record sent message metadata in PostgreSQL
+        ↓
 Record processed event in PostgreSQL
 ```
 
-The product is currently focused on one user, one Strava account, and one WhatsApp recipient. The database schema now has user and token tables so the current one-user flow can evolve toward multi-user support later.
+Twilio can later call back to the app with delivery status updates, which update the matching sent-message record by Twilio Message SID.
+
+The product is currently focused on one user, one Strava account, and one WhatsApp recipient. The database schema now has user, token, processed-event, and sent-message tables so the current one-user flow can evolve toward multi-user support later.
 
 ## 2. Current deployed status
 
@@ -66,6 +70,12 @@ Current Strava webhook subscription ID observed during setup:
 342486
 ```
 
+Twilio delivery status callback URL to configure in Twilio:
+
+```text
+https://web-production-d4872.up.railway.app/webhook/twilio/status
+```
+
 ## 3. What is working
 
 The following features are currently working:
@@ -84,12 +94,14 @@ The following features are currently working:
 - Local `strava_tokens.json` fallback only when `DATABASE_URL` is not configured.
 - Duplicate webhook protection backed by a PostgreSQL `processed_events` table through `DATABASE_URL`.
 - Processed events can store `user_id` when Strava `owner_id` maps to the current app user.
+- Twilio sent-message metadata persistence backed by PostgreSQL `sent_messages` when `DATABASE_URL` is configured.
+- `/webhook/twilio/status` updates sent-message delivery status by Twilio Message SID without returning phone numbers or token values.
 - Recovery script for missed activities.
 - Manual resend by activity ID.
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
-- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, database token persistence, Strava redirect behavior, and safe token status metadata.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, database token persistence, Strava redirect behavior, safe token status metadata, sent-message persistence, and Twilio status callback updates.
 - Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
@@ -105,6 +117,7 @@ app/
 ├── routes/
 │   ├── health.py
 │   ├── strava.py
+│   ├── twilio.py
 │   └── webhook.py
 ├── services/
 │   ├── ai_service.py
@@ -122,7 +135,7 @@ scripts/
 └── export_activity_json.py
 ```
 
-Database-backed persistence now covers Strava tokens and duplicate webhook protection when `DATABASE_URL` is configured. The app initializes tables safely at startup with SQLAlchemy metadata creation and falls back to local JSON files only for local development without `DATABASE_URL`.
+Database-backed persistence now covers Strava tokens, duplicate webhook protection, and Twilio sent-message status tracking when `DATABASE_URL` is configured. The app initializes tables safely at startup with SQLAlchemy metadata creation and falls back to local JSON files only for local token/event development without `DATABASE_URL`.
 
 ## 5. Current message behavior
 
@@ -206,13 +219,14 @@ The app uses PostgreSQL tables configured by `DATABASE_URL` for:
 - `app_users`
 - `strava_tokens`
 - `processed_events`
+- `sent_messages`
 
 When `DATABASE_URL` is not configured, local development falls back to:
 
 - `strava_tokens.json`
 - `processed_events.json`
 
-Those files remain ignored by Git and should not be used as production storage.
+Those files remain ignored by Git and should not be used as production storage. Sent-message persistence is skipped gracefully without `DATABASE_URL` and logs a safe warning.
 
 ### 8.2 Multi-user behavior is not fully built yet
 
@@ -244,16 +258,16 @@ Future fix:
 
 - Use approved WhatsApp message templates for business-initiated outbound messages.
 
-### 8.4 Delivery status is not fully tracked
+### 8.4 Delivery status tracking is initial
 
-The app currently logs when Twilio accepts a message and returns a SID.
+The app now stores Twilio Message SID metadata and can update status through `/webhook/twilio/status` after Twilio is configured to call that URL.
 
-That does not guarantee final WhatsApp delivery.
+Remaining work:
 
-Future fix:
-
-- Add Twilio status callbacks.
-- Track accepted/sent/delivered/undelivered/failed states.
+- configure the Twilio status callback in Twilio Console or API
+- use tracked status for retry decisions
+- add approved templates for out-of-window delivery
+- add richer message history views or recovery tooling if needed
 
 ## 9. Important commands
 
@@ -301,14 +315,20 @@ curl.exe -G "https://www.strava.com/api/v3/push_subscriptions" `
   -d "client_secret=YOUR_CLIENT_SECRET"
 ```
 
+Twilio delivery status callback URL:
+
+```text
+https://web-production-d4872.up.railway.app/webhook/twilio/status
+```
+
 ## 10. Recommended next milestone
 
-The next recommended milestone is message delivery hardening and true multi-user routing.
+The next recommended milestone is WhatsApp delivery hardening and true multi-user routing.
 
 Suggested order:
 
-1. Add Twilio status callback endpoint.
-2. Track message delivery states.
-3. Add sent-message persistence.
+1. Configure Twilio status callbacks to call `/webhook/twilio/status`.
+2. Use sent-message status for retry/recovery decisions.
+3. Add approved WhatsApp templates for out-of-window messages.
 4. Add explicit user onboarding.
 5. Move duplicate uniqueness to user-scoped behavior after webhook owner routing is explicit.
