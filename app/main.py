@@ -13,8 +13,10 @@ app = FastAPI(title="Strava WhatsApp Copilot")
 
 @app.on_event("startup")
 def startup() -> None:
-    init_db()
-    logger.info("Database initialized")
+    if init_db():
+        logger.info("Database initialized")
+    else:
+        logger.info("DATABASE_URL not configured; using local JSON persistence fallback")
 
 
 app.include_router(health_router)
