@@ -127,13 +127,35 @@ Open:
 /connect-strava
 ```
 
-After Strava redirects to `/strava/callback`, tokens are saved to the `strava_tokens` table for the default app user when `DATABASE_URL` is configured.
+This endpoint redirects directly to Strava authorization. After Strava redirects back to `/strava/callback`, tokens are saved to the `strava_tokens` table for the default app user when `DATABASE_URL` is configured.
 
 ### 3.2 Token refresh
 
 Token refresh updates the same database record, including any new refresh token returned by Strava.
 
-### 3.3 Local fallback
+### 3.3 Safe token status check
+
+Use this endpoint to confirm token metadata without exposing token values:
+
+```text
+/debug/strava-token-status
+```
+
+Expected fields:
+
+```json
+{
+  "token_exists": true,
+  "athlete_id": "12345",
+  "expires_at": 1234567890,
+  "is_expired": false,
+  "storage_type": "database"
+}
+```
+
+This endpoint must not return `access_token` or `refresh_token`.
+
+### 3.4 Local fallback
 
 If `DATABASE_URL` is absent, the app falls back to `strava_tokens.json` for local development only. This file is ignored by Git.
 
