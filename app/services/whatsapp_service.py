@@ -7,6 +7,7 @@ from app.config import (
     YOUR_WHATSAPP_NUMBER,
 )
 from app.utils.logger import get_logger
+from app.utils.storage import mask_whatsapp_number, record_sent_message
 
 logger = get_logger(__name__)
 
@@ -32,11 +33,19 @@ def send_whatsapp_message(body: str) -> str:
         from_=TWILIO_WHATSAPP_NUMBER,
         to=YOUR_WHATSAPP_NUMBER,
     )
+    initial_status = getattr(message, "status", None) or "accepted"
+
+    record_sent_message(
+        twilio_message_sid=message.sid,
+        to_number=YOUR_WHATSAPP_NUMBER,
+        status=initial_status,
+    )
 
     logger.info(
-        "WhatsApp message accepted by Twilio: sid=%s to=%s",
+        "WhatsApp message accepted by Twilio: sid=%s to=%s status=%s",
         message.sid,
-        YOUR_WHATSAPP_NUMBER,
+        mask_whatsapp_number(YOUR_WHATSAPP_NUMBER),
+        initial_status,
     )
 
     return message.sid
