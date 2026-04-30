@@ -1,6 +1,6 @@
 # TrainingBuddy Roadmap
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-30_
 
 This roadmap organizes future work by priority and maturity.
 
@@ -12,7 +12,6 @@ Included:
 
 - Local FastAPI app
 - Strava OAuth
-- Token persistence
 - Twilio WhatsApp message sending
 - PT-BR ride summary
 - Strava webhook verification
@@ -27,6 +26,10 @@ Included:
 - Improved classification with HR/power/laps
 - Railway deployment
 - Strava webhook pointed to Railway
+- Repository hygiene cleanup for ignored runtime files
+- PostgreSQL-backed `processed_events`
+- PostgreSQL-backed Strava token persistence when `DATABASE_URL` is configured
+- Local JSON fallback only when `DATABASE_URL` is absent
 
 ## Phase 1 — Production stabilization
 
@@ -34,25 +37,24 @@ Goal: make the current one-user app reliable enough for daily use.
 
 ### 1.1 Persistent storage
 
-Move from file-based storage to persistent database.
-
-Current files:
-
-- `strava_tokens.json`
-- `processed_events.json`
-
-Recommended database options:
-
-- Supabase/PostgreSQL
-- Railway PostgreSQL
-- Redis for short-term deduplication
-
-Suggested tables:
+Current database-backed tables:
 
 ```text
-users
+app_users
 strava_tokens
 processed_events
+```
+
+Local fallback files remain for development only:
+
+```text
+strava_tokens.json
+processed_events.json
+```
+
+Recommended next tables:
+
+```text
 sent_messages
 activities
 ```
@@ -191,24 +193,36 @@ Goal: evolve from personal tool to product.
 
 ### 4.1 User model
 
-Add users with:
+Initial `app_users` table exists with:
 
 - user ID
+- label/name
 - Strava athlete ID
 - WhatsApp number
+
+Future improvements:
+
 - preferred language
 - timezone
 - training preferences
 
 ### 4.2 Per-user tokens
 
-Store Strava tokens per user.
+Initial `strava_tokens` table exists and stores one token row per default user.
+
+Future improvements:
+
+- explicit user onboarding
+- multiple users
+- owner/user lookup during webhook processing
 
 ### 4.3 Per-user processed events
 
-Deduplication should include user/athlete context.
+`processed_events.user_id` can be stored when Strava `owner_id` maps to an app user.
 
-Example key:
+Future deduplication should include user/athlete context after onboarding exists.
+
+Example future key:
 
 ```text
 athlete_id:activity:create:activity_id
@@ -255,19 +269,19 @@ Possible dashboard metrics:
 The strongest next engineering step is:
 
 ```text
-Move processed_events and sent message state to persistent database.
+Add Twilio status callbacks and sent message persistence.
 ```
 
 Reason:
 
-- Railway filesystem is temporary
-- deduplication should survive redeploys
-- message delivery tracking needs durable state
+- Twilio acceptance does not guarantee WhatsApp delivery
+- retry behavior needs durable state
+- this is the next reliability bottleneck after token and duplicate persistence
 
 Suggested next order:
 
-1. Add database.
-2. Store processed events.
-3. Store sent messages.
-4. Add Twilio status callback.
-5. Add token persistence.
+1. Add Twilio status callback.
+2. Store sent messages.
+3. Store message delivery state.
+4. Add explicit onboarding.
+5. Make duplicate protection fully user-scoped.
