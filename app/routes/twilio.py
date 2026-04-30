@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs
+
 from fastapi import APIRouter, Request
 
 from app.utils.storage import update_sent_message_status
@@ -5,14 +7,20 @@ from app.utils.storage import update_sent_message_status
 router = APIRouter()
 
 
+async def _twilio_callback_payload(request: Request) -> dict:
+    raw_body = await request.body()
+    parsed = parse_qs(raw_body.decode("utf-8"), keep_blank_values=True)
+    return {key: values[-1] if values else None for key, values in parsed.items()}
+
+
 @router.post("/webhook/twilio/status")
 async def twilio_status_callback(request: Request):
-    form = await request.form()
+    payload = await _twilio_callback_payload(request)
 
-    message_sid = form.get("MessageSid")
-    status = form.get("MessageStatus") or form.get("SmsStatus")
-    error_code = form.get("ErrorCode")
-    error_message = form.get("ErrorMessage")
+    message_sid = payload.get("MessageSid")
+    status = payload.get("MessageStatus") or payload.get("SmsStatus")
+    error_code = payload.get("ErrorCode")
+    error_message = payload.get("ErrorMessage")
 
     if not message_sid:
         return {
