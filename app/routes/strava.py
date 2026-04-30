@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 
 from app.services.coaching_service import build_activity_message
 from app.services.strava_service import (
@@ -9,6 +10,7 @@ from app.services.strava_service import (
     simplify_activity,
 )
 from app.services.whatsapp_service import send_whatsapp_message
+from app.utils.storage import get_strava_token_status
 
 router = APIRouter()
 
@@ -26,7 +28,17 @@ def test_whatsapp():
 
 @router.get("/connect-strava")
 def connect_strava():
-    return build_strava_auth_url()
+    auth_url = build_strava_auth_url()
+
+    if isinstance(auth_url, dict):
+        return auth_url
+
+    return RedirectResponse(url=auth_url)
+
+
+@router.get("/debug/strava-token-status")
+def debug_strava_token_status():
+    return get_strava_token_status()
 
 
 @router.get("/strava/callback")
