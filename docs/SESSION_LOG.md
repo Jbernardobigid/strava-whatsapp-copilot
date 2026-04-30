@@ -198,6 +198,14 @@ https://web-production-d4872.up.railway.app/strava/callback
 - Added `user_id` support on processed events when webhook `owner_id` maps to the current app user.
 - Preserved current one-user behavior and did not change WhatsApp message or AI coaching content.
 
+## 2026-04-30 — Twilio delivery status tracking
+
+- Added a `sent_messages` model for Twilio Message SID, masked destination, status, errors, and timestamps.
+- Persisted sent-message metadata after Twilio accepts a WhatsApp send.
+- Added `POST /webhook/twilio/status` to update sent-message status from Twilio callbacks by `MessageSid`.
+- Kept WhatsApp message content, AI coaching behavior, Strava webhook verification, and duplicate protection unchanged.
+- Added tests for sent-message persistence, callback updates, masked numbers, and safe callback responses.
+
 ## Next session recommended starting point
 
 1. Check Railway health endpoint:
@@ -213,7 +221,7 @@ https://web-production-d4872.up.railway.app/health
 4. Continue hardening:
 
 ```text
-sent message state → database
-Twilio status callback → database update
+configure Twilio status callback → confirm sent_messages updates
+approved WhatsApp templates → out-of-window reliability
 explicit user onboarding → multi-user routing
 ```
