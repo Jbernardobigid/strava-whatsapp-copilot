@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app import database
 from app.models import AppUser, Base, ProcessedEvent, StravaToken
 from app.utils.storage import (
+    get_strava_token_status,
     has_processed_event,
     load_strava_tokens,
     mark_event_as_processed,
@@ -142,6 +143,31 @@ class DatabaseStorageTests(unittest.TestCase):
             processed_event = session.query(ProcessedEvent).one()
 
         self.assertEqual(processed_event.user_id, user.id)
+
+    def test_token_status_returns_metadata_without_secrets(self):
+        save_strava_tokens(
+            {
+                "access_token": "access-token-1",
+                "refresh_token": "refresh-token-1",
+                "expires_at": 1234567890,
+                "athlete": {"id": 12345},
+            }
+        )
+
+        status = get_strava_token_status()
+
+        self.assertEqual(
+            status,
+            {
+                "token_exists": True,
+                "athlete_id": "12345",
+                "expires_at": 1234567890,
+                "is_expired": True,
+                "storage_type": "database",
+            },
+        )
+        self.assertNotIn("access_token", status)
+        self.assertNotIn("refresh_token", status)
 
 
 if __name__ == "__main__":
