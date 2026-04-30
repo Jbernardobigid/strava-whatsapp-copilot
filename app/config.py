@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN_FILE = Path("strava_tokens.json")
+PROCESSED_EVENTS_FILE = Path("processed_events.json")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
