@@ -72,6 +72,8 @@ The following features are currently working:
 
 - FastAPI app running locally and on Railway.
 - Strava OAuth connection.
+- `/connect-strava` redirects directly to Strava authorization.
+- `/debug/strava-token-status` returns safe token metadata without token values.
 - Strava token refresh flow.
 - Strava webhook verification endpoint.
 - Strava webhook subscription pointing to Railway.
@@ -87,7 +89,7 @@ The following features are currently working:
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
-- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, and database token persistence.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, database token persistence, Strava redirect behavior, and safe token status metadata.
 - Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
