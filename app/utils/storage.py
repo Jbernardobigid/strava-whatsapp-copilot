@@ -5,9 +5,11 @@ from sqlalchemy.exc import IntegrityError
 
 from app import database
 from app.config import PROCESSED_EVENTS_FILE, TOKEN_FILE, YOUR_WHATSAPP_NUMBER
-from app.models import AppUser, ProcessedEvent, StravaToken
+from app.models import AppUser, ProcessedEvent, SentMessage, StravaToken
+from app.utils.logger import get_logger
 
 DEFAULT_USER_NAME = "Default user"
+logger = get_logger(__name__)
 
 
 def _database_enabled() -> bool:
@@ -23,6 +25,24 @@ def _load_json_file(path) -> dict | list | None:
         return None
 
     return json.loads(content)
+
+
+def mask_whatsapp_number(number: str | None) -> str | None:
+    if not number:
+        return None
+
+    value = str(number)
+    prefix = ""
+    local_value = value
+
+    if ":" in value:
+        prefix, local_value = value.split(":", 1)
+        prefix = f"{prefix}:"
+
+    if len(local_value) <= 4:
+        return f"{prefix}{local_value}"
+
+    return f"{prefix}{'*' * (len(local_value) - 4)}{local_value[-4:]}"
 
 
 def _get_or_create_default_user(session, athlete_id: str | None = None) -> AppUser:
@@ -93,6 +113,15 @@ def _token_status_from_data(
     }
 
 
+def _sent_message_result(row: SentMessage | None, updated: bool) -> dict:
+    return {
+        "updated": updated,
+        "message_found": row is not None,
+        "status": row.status if row else None,
+        "error_code": row.error_code if row else None,
+    }
+
+
 def save_strava_tokens(token_data: dict) -> None:
     if not _database_enabled():
         TOKEN_FILE.write_text(json.dumps(token_data, indent=2), encoding="utf-8")
@@ -159,6 +188,106 @@ def get_strava_token_status() -> dict:
             },
             "database",
         )
+
+
+def record_sent_message(
+    twilio_message_sid: str,
+    to_number: str | None = None,
+    status: str = "accepted",
+    user_id: int | None = None,
+    strava_activity_id: str | int | None = None,
+) -> dict | None:
+    if not _database_enabled():
+        logger.warning(
+            "DATABASE_URL not configured; skipping sent message persistence"
+        )
+        return None
+
+    try:
+        with database.get_session() as session:
+            row = (
+                session.query(SentMessage)
+                .filter_by(twilio_message_sid=twilio_message_sid)
+                .first()
+            )
+
+            if not row:
+                row = SentMessage(twilio_message_sid=twilio_message_sid)
+                session.add(row)
+
+            row.user_id = user_id
+            row.strava_activity_id = (
+                str(strava_activity_id) if strava_activity_id is not None else None
+            )
+            row.to_number = mask_whatsapp_number(to_number)
+            row.status = status or "accepted"
+
+            session.commit()
+            session.refresh(row)
+            return _sent_message_result(row, updated=True)
+    except Exception as exc:
+        logger.warning(
+            "Unable to persist Twilio sent message metadata: %s",
+            exc.__class__.__name__,
+        )
+        return None
+
+
+def update_sent_message_status(
+    twilio_message_sid: str | None,
+    status: str | None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> dict:
+    if not twilio_message_sid:
+        return {
+            "updated": False,
+            "message_found": False,
+            "status": status,
+            "error_code": error_code,
+        }
+
+    if not _database_enabled():
+        logger.warning(
+            "DATABASE_URL not configured; skipping Twilio status persistence"
+        )
+        return {
+            "updated": False,
+            "message_found": False,
+            "status": status,
+            "error_code": error_code,
+        }
+
+    try:
+        with database.get_session() as session:
+            row = (
+                session.query(SentMessage)
+                .filter_by(twilio_message_sid=twilio_message_sid)
+                .first()
+            )
+
+            if not row:
+                return _sent_message_result(None, updated=False)
+
+            if status:
+                row.status = status
+            row.error_code = error_code
+            row.error_message = error_message
+
+            session.commit()
+            session.refresh(row)
+            return _sent_message_result(row, updated=True)
+    except Exception as exc:
+        logger.warning(
+            "Unable to update Twilio sent message status: %s",
+            exc.__class__.__name__,
+        )
+        return {
+            "updated": False,
+            "message_found": False,
+            "status": status,
+            "error_code": error_code,
+        }
 
 
 def build_event_key(event: dict) -> str:
