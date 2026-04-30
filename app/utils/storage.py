@@ -1,4 +1,5 @@
 import json
+import time
 
 from sqlalchemy.exc import IntegrityError
 
@@ -62,6 +63,36 @@ def _get_default_user_id_for_event(session, event: dict) -> int | None:
     return user.id if user else None
 
 
+def _token_status_from_data(
+    token_data: dict | None,
+    storage_type: str,
+) -> dict:
+    if not token_data:
+        return {
+            "token_exists": False,
+            "athlete_id": None,
+            "expires_at": None,
+            "is_expired": None,
+            "storage_type": storage_type,
+        }
+
+    expires_at = token_data.get("expires_at")
+    athlete = token_data.get("athlete") or {}
+    athlete_id = token_data.get("athlete_id") or athlete.get("id")
+
+    is_expired = None
+    if expires_at is not None:
+        is_expired = int(time.time()) >= int(expires_at)
+
+    return {
+        "token_exists": True,
+        "athlete_id": str(athlete_id) if athlete_id else None,
+        "expires_at": expires_at,
+        "is_expired": is_expired,
+        "storage_type": storage_type,
+    }
+
+
 def save_strava_tokens(token_data: dict) -> None:
     if not _database_enabled():
         TOKEN_FILE.write_text(json.dumps(token_data, indent=2), encoding="utf-8")
@@ -105,6 +136,29 @@ def load_strava_tokens() -> dict | None:
             "expires_at": token.expires_at,
             "athlete": athlete,
         }
+
+
+def get_strava_token_status() -> dict:
+    if not _database_enabled():
+        token_data = _load_json_file(TOKEN_FILE)
+        return _token_status_from_data(
+            token_data if isinstance(token_data, dict) else None,
+            "json_file",
+        )
+
+    with database.get_session() as session:
+        token = session.query(StravaToken).order_by(StravaToken.id.desc()).first()
+
+        if not token:
+            return _token_status_from_data(None, "database")
+
+        return _token_status_from_data(
+            {
+                "athlete_id": token.athlete_id,
+                "expires_at": token.expires_at,
+            },
+            "database",
+        )
 
 
 def build_event_key(event: dict) -> str:
