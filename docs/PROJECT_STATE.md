@@ -17,6 +17,8 @@ Railway-hosted FastAPI app
         ↓
 Check processed_events in Supabase PostgreSQL
         ↓
+Load Strava token for the default app user
+        ↓
 Fetch full Strava activity by object_id
         ↓
 Classify ride using metrics
@@ -28,7 +30,7 @@ Send WhatsApp message through Twilio
 Record processed event in PostgreSQL
 ```
 
-The product is currently focused on one user, one Strava account, and one WhatsApp recipient.
+The product is currently focused on one user, one Strava account, and one WhatsApp recipient. The database schema now has user and token tables so the current one-user flow can evolve toward multi-user support later.
 
 ## 2. Current deployed status
 
@@ -76,13 +78,16 @@ The following features are currently working:
 - Fetching exact activity by webhook `object_id`.
 - WhatsApp sending through Twilio.
 - PT-BR message generation.
-- Duplicate webhook protection backed by a Supabase PostgreSQL `processed_events` table through `DATABASE_URL`.
+- Strava token persistence backed by PostgreSQL `app_users` and `strava_tokens` tables when `DATABASE_URL` is configured.
+- Local `strava_tokens.json` fallback only when `DATABASE_URL` is not configured.
+- Duplicate webhook protection backed by a PostgreSQL `processed_events` table through `DATABASE_URL`.
+- Processed events can store `user_id` when Strava `owner_id` maps to the current app user.
 - Recovery script for missed activities.
 - Manual resend by activity ID.
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
-- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, and duplicate event database handling.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, and database token persistence.
 - Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
@@ -115,7 +120,7 @@ scripts/
 └── export_activity_json.py
 ```
 
-Duplicate webhook protection now uses PostgreSQL instead of `processed_events.json`. The app initializes the first database table safely at startup with SQLAlchemy metadata creation.
+Database-backed persistence now covers Strava tokens and duplicate webhook protection when `DATABASE_URL` is configured. The app initializes tables safely at startup with SQLAlchemy metadata creation and falls back to local JSON files only for local development without `DATABASE_URL`.
 
 ## 5. Current message behavior
 
@@ -192,19 +197,33 @@ The classification `intervalado` should take priority when strong intensity sign
 
 ## 8. Current known limitations
 
-### 8.1 Persistence is partially database-backed
+### 8.1 Persistence is database-backed with local fallback
 
-Duplicate protection now uses a PostgreSQL `processed_events` table configured by `DATABASE_URL`.
+The app uses PostgreSQL tables configured by `DATABASE_URL` for:
 
-The app still uses file-based Strava token persistence:
+- `app_users`
+- `strava_tokens`
+- `processed_events`
+
+When `DATABASE_URL` is not configured, local development falls back to:
 
 - `strava_tokens.json`
+- `processed_events.json`
 
-This is acceptable for MVP/dev, but not ideal for production. Railway storage can reset on redeploy, which means token persistence may break if not managed through env/database.
+Those files remain ignored by Git and should not be used as production storage.
 
-Recommended future fix: move Strava token storage to Supabase, PostgreSQL, or another durable store.
+### 8.2 Multi-user behavior is not fully built yet
 
-### 8.2 Twilio WhatsApp 24-hour/freeform window
+The schema is multi-user-ready, but the product still behaves as a one-user MVP. The current default-user strategy associates Strava OAuth tokens with a single default app user. Processed events store `user_id` when `owner_id` maps to that user, but duplicate protection still preserves the current global event key behavior.
+
+Future work:
+
+- explicit user onboarding
+- owner/user lookup in webhook processing
+- per-user WhatsApp destination routing
+- user-scoped duplicate uniqueness after onboarding exists
+
+### 8.3 Twilio WhatsApp 24-hour/freeform window
 
 Freeform WhatsApp messages can fail outside the allowed WhatsApp customer service window.
 
@@ -223,7 +242,7 @@ Future fix:
 
 - Use approved WhatsApp message templates for business-initiated outbound messages.
 
-### 8.3 Delivery status is not fully tracked
+### 8.4 Delivery status is not fully tracked
 
 The app currently logs when Twilio accepts a message and returns a SID.
 
@@ -233,23 +252,6 @@ Future fix:
 
 - Add Twilio status callbacks.
 - Track accepted/sent/delivered/undelivered/failed states.
-
-### 8.4 One-user architecture
-
-The current app is not multi-user.
-
-It assumes:
-
-- one Strava token
-- one WhatsApp destination
-- one processed-events registry
-
-Future fix:
-
-- Add users table.
-- Store per-user tokens.
-- Store per-user WhatsApp numbers.
-- Associate Strava owner IDs with users.
 
 ## 9. Important commands
 
@@ -271,7 +273,7 @@ Production start command through Procfile:
 web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Required database variable:
+Required database variable for Railway/Supabase-backed persistence:
 
 ```env
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
@@ -299,12 +301,12 @@ curl.exe -G "https://www.strava.com/api/v3/push_subscriptions" `
 
 ## 10. Recommended next milestone
 
-The next recommended milestone is persistence hardening.
+The next recommended milestone is message delivery hardening and true multi-user routing.
 
 Suggested order:
 
-1. Move token storage to database or secure Railway variables.
-2. Add Twilio status callback endpoint.
-3. Track message delivery states.
-4. Add sent-message persistence.
-5. Add multi-user model only after persistence is stable.
+1. Add Twilio status callback endpoint.
+2. Track message delivery states.
+3. Add sent-message persistence.
+4. Add explicit user onboarding.
+5. Move duplicate uniqueness to user-scoped behavior after webhook owner routing is explicit.
