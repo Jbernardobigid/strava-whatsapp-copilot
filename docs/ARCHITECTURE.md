@@ -1,10 +1,10 @@
 # TrainingBuddy Architecture
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-30_
 
 ## 1. Architecture overview
 
-TrainingBuddy is a FastAPI application that integrates Strava, Twilio WhatsApp, and OpenAI.
+TrainingBuddy is a FastAPI application that integrates Strava, Twilio WhatsApp, OpenAI, and Supabase PostgreSQL.
 
 The app follows a small modular architecture:
 
@@ -12,17 +12,21 @@ The app follows a small modular architecture:
 app/
 ├── main.py
 ├── config.py
+├── database.py
+├── models.py
 ├── routes/
 ├── services/
 └── utils/
 ```
 
-The system is designed around clear separation of responsibilities:
+Responsibilities stay separated:
 
 - Routes expose HTTP endpoints.
-- Services contain product/business logic.
-- Utils contain reusable infrastructure helpers.
-- Config centralizes environment variables.
+- Services contain Strava, WhatsApp, coaching, and AI logic.
+- Utils contain formatting, logging, and persistence helpers.
+- `database.py` owns SQLAlchemy engine/session setup.
+- `models.py` owns database table definitions.
+- `config.py` centralizes environment variables and local fallback file paths.
 
 ## 2. Runtime flow
 
@@ -31,115 +35,119 @@ The system is designed around clear separation of responsibilities:
 ```text
 1. User finishes a Strava ride.
 2. Strava sends a webhook POST to /webhook/strava.
-3. Webhook route checks deduplication.
-4. App fetches full activity using object_id.
-5. Strava service simplifies the activity into a usable dict.
-6. Coaching service classifies the ride.
-7. Coaching service builds weekly context.
-8. AI service generates the ride interpretation.
-9. Coaching service builds the final WhatsApp message.
-10. WhatsApp service sends the message through Twilio.
-11. Event is marked as processed.
+3. Webhook route checks duplicate state in processed_events.
+4. App fetches the full activity using object_id.
+5. Strava service loads the current token for the default app user.
+6. Strava service simplifies the activity into a usable dict.
+7. Coaching service classifies the ride.
+8. Coaching service builds weekly context.
+9. AI service generates the ride interpretation.
+10. Coaching service builds the final WhatsApp message.
+11. WhatsApp service sends the message through Twilio.
+12. Event is marked as processed.
 ```
 
-### 2.2 Manual recovery flow
+### 2.2 Strava OAuth flow
+
+```text
+1. User opens /connect-strava.
+2. Strava redirects to /strava/callback with an authorization code.
+3. App exchanges the code for Strava tokens.
+4. Tokens are saved to the strava_tokens table for the default app user.
+5. If DATABASE_URL is absent, local development falls back to strava_tokens.json.
+```
+
+### 2.3 Manual recovery flow
 
 ```text
 1. User runs scripts/recover_missed_activities.py.
 2. Script fetches recent Strava activities.
-3. Script checks processed event keys.
+3. Script checks processed event state.
 4. Missed rides are sent to WhatsApp.
 5. Activity IDs are saved as processed.
 ```
 
-### 2.3 Manual resend flow
+### 2.4 Manual resend flow
 
 ```text
 1. User provides a Strava activity ID.
 2. Script or one-liner fetches exact activity.
 3. App builds message.
 4. App sends WhatsApp message.
-5. This path does not need to modify processed_events.json.
+5. This path does not need to modify processed event state.
 ```
 
-## 3. Folder structure
+## 3. Database model
+
+Current SQLAlchemy models:
 
 ```text
-app/
-├── __init__.py
-├── main.py
-├── config.py
-├── routes/
-│   ├── __init__.py
-│   ├── health.py
-│   ├── strava.py
-│   └── webhook.py
-├── services/
-│   ├── __init__.py
-│   ├── ai_service.py
-│   ├── coaching_service.py
-│   ├── strava_service.py
-│   └── whatsapp_service.py
-└── utils/
-    ├── __init__.py
-    ├── formatters.py
-    ├── logger.py
-    └── storage.py
+app_users
+- id
+- name
+- whatsapp_number
+- strava_athlete_id
+- created_at
+- updated_at
+
+strava_tokens
+- id
+- user_id
+- athlete_id
+- access_token
+- refresh_token
+- expires_at
+- created_at
+- updated_at
+
+processed_events
+- id
+- user_id
+- strava_object_id
+- object_type
+- aspect_type
+- processed_at
+- status
+- error_message
 ```
 
-## 4. Main modules
+`processed_events` keeps the current global uniqueness behavior on `strava_object_id`, `object_type`, and `aspect_type`. A nullable `user_id` is populated when Strava `owner_id` maps to the current app user, preparing the app for future user-scoped routing.
 
-## 4.1 `app/main.py`
+## 4. Persistence behavior
 
-Creates the FastAPI app and registers routers.
+When `DATABASE_URL` is configured:
 
-Expected responsibilities:
+- Strava tokens are stored in PostgreSQL.
+- Processed webhook events are stored in PostgreSQL.
+- Tables are initialized at startup through SQLAlchemy metadata creation.
 
-- Create `FastAPI(title="Strava WhatsApp Copilot")`
-- Include health routes
-- Include Strava routes
-- Include webhook routes
-- Initialize logging
+When `DATABASE_URL` is not configured:
 
-This file should remain small.
+- Local development falls back to `strava_tokens.json`.
+- Local development falls back to `processed_events.json`.
+- These runtime files remain ignored by Git.
 
-## 4.2 `app/config.py`
+## 5. Main modules
 
-Centralizes environment variables and file paths.
+### `app/main.py`
 
-Typical values:
+Creates the FastAPI app, initializes database tables on startup when configured, and registers routers.
 
-```python
-TOKEN_FILE
-PROCESSED_EVENTS_FILE
-TWILIO_ACCOUNT_SID
-TWILIO_AUTH_TOKEN
-TWILIO_WHATSAPP_NUMBER
-YOUR_WHATSAPP_NUMBER
-STRAVA_CLIENT_ID
-STRAVA_CLIENT_SECRET
-STRAVA_REDIRECT_URI
-STRAVA_VERIFY_TOKEN
-OPENAI_API_KEY
-OPENAI_MODEL
-```
+### `app/config.py`
 
-No secrets should be committed to GitHub.
+Centralizes environment variables and local fallback paths, including `DATABASE_URL`.
 
-## 4.3 `app/routes/health.py`
+### `app/database.py`
 
-Provides basic status endpoints:
+Creates the SQLAlchemy engine/session and initializes database tables. If `DATABASE_URL` is absent, startup uses local JSON fallback mode.
 
-```text
-GET /
-GET /health
-```
+### `app/models.py`
 
-Used to confirm local/Railway availability.
+Defines `AppUser`, `StravaToken`, and `ProcessedEvent`.
 
-## 4.4 `app/routes/strava.py`
+### `app/routes/strava.py`
 
-Contains user-facing/manual Strava endpoints:
+Contains manual Strava endpoints:
 
 ```text
 GET /connect-strava
@@ -149,7 +157,7 @@ GET /send-latest-activity-whatsapp
 GET /test-whatsapp
 ```
 
-## 4.5 `app/routes/webhook.py`
+### `app/routes/webhook.py`
 
 Contains Strava webhook endpoints:
 
@@ -159,132 +167,44 @@ POST /webhook/strava
 GET /debug/weekly-context
 ```
 
-Responsibilities:
+It must continue to preserve Strava webhook verification and duplicate protection.
 
-- Verify Strava webhook subscription challenge.
-- Receive activity events.
-- Ignore duplicates.
-- Fetch exact activity by ID.
-- Send WhatsApp message.
-- Mark event as processed.
+### `app/services/strava_service.py`
 
-## 4.6 `app/services/strava_service.py`
+Handles Strava OAuth, token refresh, activity fetches, activity simplification, and weekly context.
 
-Handles Strava API interactions.
+### `app/services/coaching_service.py`
 
-Responsibilities:
+Contains deterministic coaching logic and final message assembly.
 
-- Refresh access tokens.
-- Build Strava authorization URL.
-- Exchange authorization code for token.
-- Fetch latest activity.
-- Fetch activity by ID.
-- Fetch recent activities.
-- Simplify raw Strava activity data.
-- Build weekly context.
+### `app/services/ai_service.py`
 
-## 4.7 `app/services/coaching_service.py`
+Generates only the short PT-BR training interpretation and keeps deterministic fallback behavior.
 
-Contains core product intelligence.
+### `app/services/whatsapp_service.py`
 
-Responsibilities:
+Sends WhatsApp messages through Twilio.
 
-- Translate Strava activity types to PT-BR.
-- Classify rides.
-- Build ride title.
-- Generate fallback interpretation.
-- Generate next-day suggestion.
-- Call AI interpretation.
-- Build final WhatsApp message.
+### `app/utils/storage.py`
 
-## 4.8 `app/services/ai_service.py`
+Owns token and processed-event persistence. It uses PostgreSQL when `DATABASE_URL` is configured and JSON fallback files only when it is not.
 
-Handles OpenAI calls.
+## 6. Deployment architecture
 
-Responsibilities:
-
-- Receive activity and weekly context.
-- Generate short PT-BR ride interpretation.
-- Apply fallback if OpenAI fails.
-- Log success/failure.
-
-The AI should not own business-critical workflow decisions.
-
-## 4.9 `app/services/whatsapp_service.py`
-
-Handles Twilio WhatsApp sending.
-
-Responsibilities:
-
-- Validate Twilio env vars.
-- Send WhatsApp message.
-- Log Twilio Message SID.
-
-Important: Twilio returning a Message SID means accepted by Twilio, not necessarily delivered to WhatsApp.
-
-## 4.10 `app/utils/storage.py`
-
-Handles file-based persistence.
-
-Responsibilities:
-
-- Load/save Strava tokens.
-- Load/save processed webhook event keys.
-- Build deduplication event keys.
-
-Current deduplication key:
-
-```text
-object_type:aspect_type:object_id
-```
-
-Example:
-
-```text
-activity:create:18236736799
-```
-
-## 4.11 `app/utils/formatters.py`
-
-Formatting helpers:
-
-- `format_datetime_pt_br`
-- `format_number_pt_br`
-- `format_duration_pt_br`
-- `normalize_activity_name`
-
-## 4.12 `app/utils/logger.py`
-
-Central logging setup.
-
-Current behavior:
-
-- Console logging.
-- File logging to `logs/app.log`.
-- Rotating file handler.
-
-## 5. Deployment architecture
-
-The app is deployed on Railway using a Procfile:
+Railway runs the app through the Procfile:
 
 ```text
 web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Railway injects the `$PORT` value at runtime.
+Required production persistence variable:
 
-## 6. Persistence warning
-
-The current architecture still has temporary file-based persistence.
-
-This is acceptable for MVP but should be changed before serious production usage.
-
-Recommended future architecture:
-
-```text
-Railway FastAPI app
-        ↓
-PostgreSQL / Supabase
-        ↓
-users, strava_tokens, processed_events, sent_messages
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 ```
+
+No secrets should be committed to GitHub.
+
+## 7. Remaining multi-user work
+
+The database model is multi-user-ready, but the product still behaves as a one-user MVP. Remaining work includes explicit onboarding, per-user WhatsApp routing, and changing duplicate uniqueness to user-scoped behavior after webhook owner routing is explicit.
