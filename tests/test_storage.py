@@ -7,13 +7,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from app import database
-from app.models import AppUser, Base, ProcessedEvent, StravaToken
+from app.models import AppUser, Base, ProcessedEvent, SentMessage, StravaToken
 from app.utils.storage import (
     get_strava_token_status,
     has_processed_event,
     load_strava_tokens,
     mark_event_as_processed,
+    mask_whatsapp_number,
+    record_sent_message,
     save_strava_tokens,
+    update_sent_message_status,
 )
 
 
@@ -168,6 +171,57 @@ class DatabaseStorageTests(unittest.TestCase):
         )
         self.assertNotIn("access_token", status)
         self.assertNotIn("refresh_token", status)
+
+    def test_record_sent_message_masks_number_and_persists_status(self):
+        result = record_sent_message(
+            twilio_message_sid="SM123",
+            to_number="whatsapp:+5511999991234",
+            status="queued",
+            strava_activity_id=18236736799,
+        )
+
+        self.assertEqual(result["updated"], True)
+        self.assertEqual(result["message_found"], True)
+        self.assertEqual(result["status"], "queued")
+
+        with database.get_session() as session:
+            row = session.query(SentMessage).one()
+
+        self.assertEqual(row.twilio_message_sid, "SM123")
+        self.assertEqual(row.strava_activity_id, "18236736799")
+        self.assertEqual(row.to_number, "whatsapp:**********1234")
+        self.assertNotEqual(row.to_number, "whatsapp:+5511999991234")
+
+    def test_update_sent_message_status_from_callback_payload(self):
+        record_sent_message(
+            twilio_message_sid="SM123",
+            to_number="whatsapp:+5511999991234",
+            status="queued",
+        )
+
+        result = update_sent_message_status(
+            twilio_message_sid="SM123",
+            status="delivered",
+            error_code=None,
+            error_message=None,
+        )
+
+        self.assertEqual(result["updated"], True)
+        self.assertEqual(result["message_found"], True)
+        self.assertEqual(result["status"], "delivered")
+
+        with database.get_session() as session:
+            row = session.query(SentMessage).one()
+
+        self.assertEqual(row.status, "delivered")
+        self.assertIsNone(row.error_code)
+        self.assertIsNone(row.error_message)
+
+    def test_mask_whatsapp_number_preserves_only_last_four_digits(self):
+        self.assertEqual(
+            mask_whatsapp_number("whatsapp:+5511999991234"),
+            "whatsapp:**********1234",
+        )
 
 
 if __name__ == "__main__":
