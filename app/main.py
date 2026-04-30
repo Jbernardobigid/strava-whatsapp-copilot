@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.database import init_db
 from app.routes.health import router as health_router
 from app.routes.strava import router as strava_router
+from app.routes.twilio import router as twilio_router
 from app.routes.webhook import router as webhook_router
 from app.utils.logger import get_logger
 
@@ -22,5 +23,6 @@ def startup() -> None:
 app.include_router(health_router)
 app.include_router(strava_router)
 app.include_router(webhook_router)
+app.include_router(twilio_router)
 
 logger.info("Strava WhatsApp Copilot app started")
