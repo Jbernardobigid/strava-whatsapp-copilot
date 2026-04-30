@@ -23,6 +23,12 @@ def install_stub_if_missing(module_name, module):
 
 
 class StubAPIRouter:
+    def get(self, *args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
     def post(self, *args, **kwargs):
         def decorator(func):
             return func
@@ -35,6 +41,9 @@ fastapi_stub.__path__ = []
 fastapi_stub.APIRouter = StubAPIRouter
 fastapi_stub.Request = object
 install_stub_if_missing("fastapi", fastapi_stub)
+if "fastapi" in sys.modules:
+    sys.modules["fastapi"].APIRouter = StubAPIRouter
+    sys.modules["fastapi"].Request = object
 
 
 class FakeMessage:
