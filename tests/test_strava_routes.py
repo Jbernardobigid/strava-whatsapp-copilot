@@ -39,6 +39,15 @@ responses_stub.RedirectResponse = StubRedirectResponse
 if "fastapi.responses" not in sys.modules:
     sys.modules["fastapi.responses"] = responses_stub
 
+twilio_stub = types.ModuleType("twilio")
+twilio_stub.__path__ = []
+install_stub_if_missing("twilio", twilio_stub)
+
+rest_stub = types.ModuleType("twilio.rest")
+rest_stub.Client = lambda *args, **kwargs: object()
+if "twilio.rest" not in sys.modules:
+    sys.modules["twilio.rest"] = rest_stub
+
 from app.routes import strava as strava_routes
 from app.routes.strava import connect_strava, debug_strava_token_status
 from app.services import strava_service
