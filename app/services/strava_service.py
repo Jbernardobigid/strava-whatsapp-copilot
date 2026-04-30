@@ -69,7 +69,7 @@ def get_valid_strava_access_token() -> str | None:
     return token_data.get("access_token")
 
 
-def build_strava_auth_url() -> dict:
+def build_strava_auth_url() -> str | dict:
     if not STRAVA_CLIENT_ID or not STRAVA_REDIRECT_URI:
         logger.error("Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env")
         return {"error": "Missing STRAVA_CLIENT_ID or STRAVA_REDIRECT_URI in .env"}
@@ -85,7 +85,7 @@ def build_strava_auth_url() -> dict:
 
     logger.info("Generated Strava authorization URL")
 
-    return {"auth_url": url}
+    return url
 
 
 def exchange_code_for_token(code: str) -> dict:
