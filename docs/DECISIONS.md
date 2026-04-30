@@ -1,6 +1,6 @@
 # TrainingBuddy Technical Decisions
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-30_
 
 This document records important technical/product decisions made during the project.
 
@@ -138,7 +138,7 @@ Reason:
 
 - surgical fix
 - does not break deduplication state
-- avoids editing `processed_events.json`
+- avoids editing processed event state
 
 ## Decision 9 — Add logging before AI expansion
 
@@ -208,7 +208,7 @@ Reason:
 Tradeoff:
 
 - filesystem is ephemeral
-- persistence should be moved to database later
+- persistence should use database-backed storage for production state
 
 ## Decision 13 — Keep one log file for now
 
@@ -236,13 +236,43 @@ Current app is one-user.
 
 Decision:
 
-- do not add multi-user support yet
+- do not add full multi-user onboarding yet
 
 Reason:
 
 - validate product behavior first
 - avoid premature complexity
 
+Current compromise:
+
+- add app user and per-user token tables
+- keep a default-user strategy for the current one-user flow
+- store processed event `user_id` when webhook `owner_id` maps safely
+
 Future direction:
 
-- add database-backed users, tokens, WhatsApp numbers, and ownership mapping
+- explicit onboarding
+- per-user WhatsApp routing
+- user-scoped duplicate uniqueness
+
+## Decision 15 — Store Strava tokens in PostgreSQL when configured
+
+`strava_tokens.json` is fragile on Railway because the filesystem can reset across deploys.
+
+Decision:
+
+- store Strava tokens in the `strava_tokens` table when `DATABASE_URL` is configured
+- associate tokens with the default app user in `app_users`
+- update the same token row during refresh, including new refresh tokens
+- keep local JSON fallback only when `DATABASE_URL` is absent
+
+Reason:
+
+- production token persistence should survive redeploys
+- the schema should prepare for future multi-user behavior
+- local development should still work without requiring Supabase
+
+Outcome:
+
+- current one-user behavior is preserved
+- production persistence no longer depends on Railway filesystem token files
