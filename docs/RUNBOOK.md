@@ -1,6 +1,6 @@
 # TrainingBuddy Runbook
 
-_Last updated: 2026-04-24_
+_Last updated: 2026-04-30_
 
 This runbook explains how to operate, test, recover, and troubleshoot the TrainingBuddy app.
 
@@ -14,7 +14,24 @@ Windows PowerShell:
 .venv\Scripts\Activate.ps1
 ```
 
-### 1.2 Run locally
+### 1.2 Configure environment
+
+Production/Railway should configure Supabase PostgreSQL with:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+```
+
+Do not commit `.env` or real credentials.
+
+If `DATABASE_URL` is not set, local development falls back to ignored JSON files:
+
+```text
+strava_tokens.json
+processed_events.json
+```
+
+### 1.3 Run locally
 
 ```bash
 uvicorn app.main:app --reload
@@ -26,7 +43,14 @@ Local base URL:
 http://127.0.0.1:8000
 ```
 
-### 1.3 Test health
+### 1.4 Run validation
+
+```bash
+python -m compileall app scripts
+python -m unittest discover
+```
+
+### 1.5 Test health
 
 ```text
 http://127.0.0.1:8000/health
@@ -38,7 +62,7 @@ Expected response:
 {"status":"ok"}
 ```
 
-### 1.4 Test WhatsApp
+### 1.6 Test WhatsApp
 
 ```text
 http://127.0.0.1:8000/test-whatsapp
@@ -86,15 +110,36 @@ Project → Service → Logs
 Look for:
 
 - app startup logs
+- database initialization logs
 - `/health` requests
 - Strava webhook verification requests
 - Strava webhook POST events
 - Twilio Message SID logs
 - OpenAI generation logs
 
-## 3. Strava webhook operations
+## 3. Strava OAuth and token persistence
 
-### 3.1 List current webhook subscriptions
+### 3.1 Connect Strava
+
+Open:
+
+```text
+/connect-strava
+```
+
+After Strava redirects to `/strava/callback`, tokens are saved to the `strava_tokens` table for the default app user when `DATABASE_URL` is configured.
+
+### 3.2 Token refresh
+
+Token refresh updates the same database record, including any new refresh token returned by Strava.
+
+### 3.3 Local fallback
+
+If `DATABASE_URL` is absent, the app falls back to `strava_tokens.json` for local development only. This file is ignored by Git.
+
+## 4. Strava webhook operations
+
+### 4.1 List current webhook subscriptions
 
 PowerShell:
 
@@ -110,13 +155,13 @@ Expected current callback URL:
 https://web-production-d4872.up.railway.app/webhook/strava
 ```
 
-### 3.2 Delete a webhook subscription
+### 4.2 Delete a webhook subscription
 
 ```powershell
 curl.exe -X DELETE "https://www.strava.com/api/v3/push_subscriptions/SUBSCRIPTION_ID?client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET"
 ```
 
-### 3.3 Create webhook subscription
+### 4.3 Create webhook subscription
 
 ```powershell
 curl.exe -X POST "https://www.strava.com/api/v3/push_subscriptions" `
@@ -128,7 +173,7 @@ curl.exe -X POST "https://www.strava.com/api/v3/push_subscriptions" `
 
 After creating it, Railway logs should show a GET request to `/webhook/strava` with `hub.challenge`.
 
-## 4. Strava OAuth settings
+## 5. Strava OAuth settings
 
 In Strava → My API Application:
 
@@ -146,17 +191,17 @@ Railway variable should be:
 STRAVA_REDIRECT_URI=https://web-production-d4872.up.railway.app/strava/callback
 ```
 
-## 5. Recovery script
+## 6. Recovery script
 
 Use this if the app missed a ride or the webhook did not process.
 
-### 5.1 Run recovery for the most recent activity
+### 6.1 Run recovery for the most recent activity
 
 ```bash
 python scripts/recover_missed_activities.py 1
 ```
 
-### 5.2 Run recovery for recent activities
+### 6.2 Run recovery for recent activities
 
 ```bash
 python scripts/recover_missed_activities.py 10
@@ -167,9 +212,9 @@ The script should:
 - fetch recent Strava activities
 - skip already processed activity IDs
 - send WhatsApp for missed rides
-- mark recovered rides as processed
+- mark recovered rides as processed in the configured persistence layer
 
-## 6. Manual resend by activity ID
+## 7. Manual resend by activity ID
 
 Use this if an activity was marked processed but the WhatsApp message did not arrive due to Twilio delivery failure.
 
@@ -181,9 +226,9 @@ python -c "from app.services.strava_service import get_strava_activity_by_id; fr
 
 Replace `ACTIVITY_ID` with the Strava activity ID.
 
-This does not modify `processed_events.json`.
+This does not modify processed event state.
 
-## 7. Export full Strava activity JSON
+## 8. Export full Strava activity JSON
 
 Use this to inspect raw Strava data.
 
@@ -199,15 +244,9 @@ activity_ACTIVITY_ID.json
 
 These exported files should be ignored by Git.
 
-Recommended `.gitignore` entry:
+## 9. Twilio troubleshooting
 
-```gitignore
-activity_*.json
-```
-
-## 8. Twilio troubleshooting
-
-### 8.1 Message accepted but not delivered
+### 9.1 Message accepted but not delivered
 
 If `/test-whatsapp` returns a SID but no message arrives, check Twilio Console → Messaging Logs.
 
@@ -223,17 +262,17 @@ Common error:
 63016 - Failed to send freeform message because you are outside the allowed window.
 ```
 
-### 8.2 Fix WhatsApp window issue
+### 9.2 Fix WhatsApp window issue
 
 Send a message from your phone to the Twilio WhatsApp Sandbox number.
 
 Then retry `/test-whatsapp` or resend the activity.
 
-### 8.3 Long-term fix
+### 9.3 Long-term fix
 
 Use approved WhatsApp templates for outbound messages outside the customer service window.
 
-## 9. Logging
+## 10. Logging
 
 Local logs are stored in:
 
@@ -245,6 +284,7 @@ Logs are ignored by Git.
 
 Useful log events:
 
+- database initialization or JSON fallback mode
 - Strava token refresh
 - recent activity fetch
 - activity fetch by ID
@@ -255,9 +295,9 @@ Useful log events:
 - duplicate webhook ignored
 - webhook processed
 
-## 10. Common issues
+## 11. Common issues
 
-### 10.1 Wrong Uvicorn command
+### 11.1 Wrong Uvicorn command
 
 Correct:
 
@@ -271,7 +311,7 @@ Wrong:
 uvicorn app.main.app: --reload
 ```
 
-### 10.2 Favicon 404
+### 11.2 Favicon 404
 
 When testing `/health`, browser may also request:
 
@@ -281,18 +321,12 @@ When testing `/health`, browser may also request:
 
 A 404 for favicon is harmless.
 
-### 10.3 Webhook points to old ngrok URL
+### 11.3 Webhook points to old ngrok URL
 
 List subscriptions and confirm callback URL.
 
 If it still points to ngrok, delete and recreate the subscription with Railway URL.
 
-### 10.4 Duplicate messages
+### 11.4 Duplicate messages
 
-Deduplication is handled through `processed_events.json` using keys like:
-
-```text
-activity:create:ACTIVITY_ID
-```
-
-If this file resets, duplicate messages may happen again.
+Deduplication is handled through the `processed_events` table when `DATABASE_URL` is configured. Without `DATABASE_URL`, local development falls back to ignored `processed_events.json`.
