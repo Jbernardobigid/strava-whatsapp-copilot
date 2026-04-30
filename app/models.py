@@ -21,6 +21,7 @@ class AppUser(Base):
 
     strava_tokens = relationship("StravaToken", back_populates="user")
     processed_events = relationship("ProcessedEvent", back_populates="user")
+    sent_messages = relationship("SentMessage", back_populates="user")
 
 
 class StravaToken(Base):
@@ -67,3 +68,28 @@ class ProcessedEvent(Base):
     error_message = Column(Text, nullable=True)
 
     user = relationship("AppUser", back_populates="processed_events")
+
+
+class SentMessage(Base):
+    __tablename__ = "sent_messages"
+    __table_args__ = (
+        UniqueConstraint("twilio_message_sid", name="uq_sent_messages_twilio_message_sid"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True, index=True)
+    strava_activity_id = Column(String, nullable=True, index=True)
+    twilio_message_sid = Column(String, nullable=False, unique=True, index=True)
+    to_number = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="accepted")
+    error_code = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("AppUser", back_populates="sent_messages")
