@@ -1,8 +1,6 @@
 from pathlib import Path
 import sys
 
-logger = get_logger(__name__)
-
 # Make sure the project root is on sys.path when running from /scripts
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
@@ -13,6 +11,7 @@ from app.services.strava_service import get_recent_strava_activities, simplify_a
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.storage import load_processed_events, save_processed_events
 
+logger = get_logger(__name__)
 
 def build_recovery_event_key(activity_id: int) -> str:
     return f"activity:create:{activity_id}"
