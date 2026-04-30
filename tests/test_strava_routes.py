@@ -4,8 +4,6 @@ import unittest
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 
-from fastapi.responses import RedirectResponse
-
 from app.routes import strava as strava_routes
 from app.routes.strava import connect_strava, debug_strava_token_status
 from app.services import strava_service
@@ -22,8 +20,8 @@ class StravaRouteTests(unittest.TestCase):
         finally:
             strava_service.STRAVA_CLIENT_ID, strava_service.STRAVA_REDIRECT_URI = original
 
-        self.assertIsInstance(response, RedirectResponse)
         self.assertEqual(response.status_code, 307)
+        self.assertIn("location", response.headers)
         self.assertIn("https://www.strava.com/oauth/authorize", response.headers["location"])
         self.assertIn("client_id=12345", response.headers["location"])
         self.assertIn("response_type=code", response.headers["location"])
