@@ -45,33 +45,156 @@ def mask_whatsapp_number(number: str | None) -> str | None:
     return f"{prefix}{'*' * (len(local_value) - 4)}{local_value[-4:]}"
 
 
-def _get_or_create_default_user(session, athlete_id: str | None = None) -> AppUser:
+def _app_user_snapshot(user: AppUser | None) -> dict | None:
+    if not user:
+        return None
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "whatsapp_number": user.whatsapp_number,
+        "strava_athlete_id": user.strava_athlete_id,
+    }
+
+
+def _ensure_default_whatsapp_number(user: AppUser) -> None:
+    if YOUR_WHATSAPP_NUMBER and not user.whatsapp_number:
+        user.whatsapp_number = YOUR_WHATSAPP_NUMBER
+
+
+def _get_or_create_user_for_athlete(
+    session,
+    athlete_id: str | int | None = None,
+) -> AppUser:
+    athlete_id = str(athlete_id) if athlete_id else None
     user = None
 
     if athlete_id:
         user = session.query(AppUser).filter_by(strava_athlete_id=athlete_id).first()
+        if user:
+            _ensure_default_whatsapp_number(user)
+            session.flush()
+            return user
 
-    if not user:
-        user = session.query(AppUser).order_by(AppUser.id).first()
+    first_user = session.query(AppUser).order_by(AppUser.id).first()
 
-    if not user:
+    if not athlete_id:
+        if first_user:
+            _ensure_default_whatsapp_number(first_user)
+            session.flush()
+            return first_user
+
         user = AppUser(
             name=DEFAULT_USER_NAME,
             whatsapp_number=YOUR_WHATSAPP_NUMBER,
-            strava_athlete_id=athlete_id,
         )
         session.add(user)
         session.flush()
         return user
 
-    if athlete_id and user.strava_athlete_id != athlete_id:
-        user.strava_athlete_id = athlete_id
+    if first_user and not first_user.strava_athlete_id:
+        first_user.strava_athlete_id = athlete_id
+        _ensure_default_whatsapp_number(first_user)
+        session.flush()
+        return first_user
 
-    if YOUR_WHATSAPP_NUMBER and not user.whatsapp_number:
-        user.whatsapp_number = YOUR_WHATSAPP_NUMBER
-
+    user = AppUser(
+        name=f"Strava athlete {athlete_id}",
+        whatsapp_number=YOUR_WHATSAPP_NUMBER,
+        strava_athlete_id=athlete_id,
+    )
+    session.add(user)
     session.flush()
     return user
+
+
+def _get_or_create_default_user(session, athlete_id: str | None = None) -> AppUser:
+    return _get_or_create_user_for_athlete(session, athlete_id=athlete_id)
+
+
+def get_or_create_app_user_for_athlete(athlete_id: str | int | None) -> dict | None:
+    if not _database_enabled():
+        return None
+
+    with database.get_session() as session:
+        user = _get_or_create_user_for_athlete(session, athlete_id=athlete_id)
+        session.commit()
+        session.refresh(user)
+        return _app_user_snapshot(user)
+
+
+def get_app_user_by_strava_athlete_id(athlete_id: str | int | None) -> dict | None:
+    if not _database_enabled() or not athlete_id:
+        return None
+
+    with database.get_session() as session:
+        user = (
+            session.query(AppUser)
+            .filter_by(strava_athlete_id=str(athlete_id))
+            .first()
+        )
+
+        if user:
+            _ensure_default_whatsapp_number(user)
+            session.commit()
+            session.refresh(user)
+
+        return _app_user_snapshot(user)
+
+
+def get_default_app_user() -> dict | None:
+    if not _database_enabled():
+        return None
+
+    with database.get_session() as session:
+        user = session.query(AppUser).order_by(AppUser.id).first()
+
+        if user:
+            _ensure_default_whatsapp_number(user)
+            session.commit()
+            session.refresh(user)
+
+        return _app_user_snapshot(user)
+
+
+def resolve_app_user_for_webhook_event(event: dict) -> dict | None:
+    if not _database_enabled():
+        return None
+
+    owner_id = event.get("owner_id")
+
+    with database.get_session() as session:
+        if owner_id:
+            owner_id = str(owner_id)
+            user = session.query(AppUser).filter_by(strava_athlete_id=owner_id).first()
+            if user:
+                _ensure_default_whatsapp_number(user)
+                session.commit()
+                session.refresh(user)
+                return _app_user_snapshot(user)
+
+            fallback_user = session.query(AppUser).order_by(AppUser.id).first()
+            if fallback_user and not fallback_user.strava_athlete_id:
+                fallback_user.strava_athlete_id = owner_id
+                _ensure_default_whatsapp_number(fallback_user)
+                session.commit()
+                session.refresh(fallback_user)
+                return _app_user_snapshot(fallback_user)
+
+            logger.warning(
+                "No app user mapped for Strava webhook owner_id=%s",
+                owner_id,
+            )
+            return None
+
+        fallback_user = session.query(AppUser).order_by(AppUser.id).first()
+        if fallback_user:
+            _ensure_default_whatsapp_number(fallback_user)
+            session.commit()
+            session.refresh(fallback_user)
+            return _app_user_snapshot(fallback_user)
+
+        return None
 
 
 def _get_default_user_id_for_event(session, event: dict) -> int | None:
@@ -122,7 +245,7 @@ def _sent_message_result(row: SentMessage | None, updated: bool) -> dict:
     }
 
 
-def save_strava_tokens(token_data: dict) -> None:
+def save_strava_tokens(token_data: dict, user_id: int | None = None) -> None:
     if not _database_enabled():
         TOKEN_FILE.write_text(json.dumps(token_data, indent=2), encoding="utf-8")
         return
@@ -132,7 +255,15 @@ def save_strava_tokens(token_data: dict) -> None:
     athlete_id = str(athlete_id) if athlete_id else None
 
     with database.get_session() as session:
-        user = _get_or_create_default_user(session, athlete_id=athlete_id)
+        user = session.get(AppUser, user_id) if user_id else None
+        if not user:
+            user = _get_or_create_user_for_athlete(session, athlete_id=athlete_id)
+        else:
+            _ensure_default_whatsapp_number(user)
+            if athlete_id and user.strava_athlete_id != athlete_id:
+                user.strava_athlete_id = athlete_id
+            session.flush()
+
         token = session.query(StravaToken).filter_by(user_id=user.id).first()
 
         if not token:
@@ -147,13 +278,23 @@ def save_strava_tokens(token_data: dict) -> None:
         session.commit()
 
 
-def load_strava_tokens() -> dict | None:
+def load_strava_tokens(
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+) -> dict | None:
     if not _database_enabled():
         token_data = _load_json_file(TOKEN_FILE)
         return token_data if isinstance(token_data, dict) else None
 
     with database.get_session() as session:
-        token = session.query(StravaToken).order_by(StravaToken.id.desc()).first()
+        query = session.query(StravaToken)
+
+        if user_id is not None:
+            token = query.filter_by(user_id=user_id).first()
+        elif athlete_id is not None:
+            token = query.filter_by(athlete_id=str(athlete_id)).first()
+        else:
+            token = query.order_by(StravaToken.id.desc()).first()
 
         if not token:
             return None
@@ -164,6 +305,7 @@ def load_strava_tokens() -> dict | None:
             "refresh_token": token.refresh_token,
             "expires_at": token.expires_at,
             "athlete": athlete,
+            "user_id": token.user_id,
         }
 
 
@@ -364,6 +506,7 @@ def mark_event_as_processed(
     event: dict,
     status: str = "processed",
     error_message: str | None = None,
+    user_id: int | None = None,
 ) -> None:
     if not _database_enabled():
         processed = load_processed_events()
@@ -376,7 +519,7 @@ def mark_event_as_processed(
     with database.get_session() as session:
         processed_event = ProcessedEvent(
             **identity,
-            user_id=_get_default_user_id_for_event(session, event),
+            user_id=user_id if user_id is not None else _get_default_user_id_for_event(session, event),
             status=status,
             error_message=error_message,
         )
