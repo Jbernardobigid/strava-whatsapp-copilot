@@ -144,11 +144,18 @@ def build_ride_title(activity: dict, ride_classification: str) -> str:
     return "Bom pedal 🚴"
 
 
-def build_activity_message(activity: dict) -> str:
+def build_activity_message(
+    activity: dict,
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+) -> str:
     tipo = translate_activity_type(activity["type"])
     ride_classification = classify_ride(activity)
 
-    weekly_context, weekly_error = build_weekly_context()
+    weekly_context, weekly_error = build_weekly_context(
+        user_id=user_id,
+        athlete_id=athlete_id,
+    )
     weekly_distance = 0.0
     weekly_summary = ""
 
