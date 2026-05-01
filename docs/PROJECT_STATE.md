@@ -1,6 +1,6 @@
 # TrainingBuddy / Strava WhatsApp Copilot — Project State
 
-_Last updated: 2026-04-30_
+_Last updated: 2026-05-01_
 
 ## 1. Project overview
 
@@ -11,13 +11,15 @@ The app currently works as an event-driven workflow:
 ```text
 Strava activity created
         ↓
-Strava webhook
+Strava webhook with owner_id
         ↓
 Railway-hosted FastAPI app
         ↓
+Resolve owner_id to app_users.strava_athlete_id
+        ↓
 Check processed_events in Supabase PostgreSQL
         ↓
-Load Strava token for the default app user
+Load Strava token for the resolved app user
         ↓
 Fetch full Strava activity by object_id
         ↓
@@ -25,16 +27,14 @@ Classify ride using metrics
         ↓
 Generate AI-assisted training interpretation
         ↓
-Send WhatsApp message through Twilio
+Send WhatsApp message through Twilio to the user's configured destination
         ↓
 Record sent message metadata in PostgreSQL
         ↓
-Record processed event in PostgreSQL
+Record processed event in PostgreSQL with user_id when known
 ```
 
-Twilio can later call back to the app with delivery status updates, which update the matching sent-message record by Twilio Message SID.
-
-The product is currently focused on one user, one Strava account, and one WhatsApp recipient. The database schema now has user, token, processed-event, and sent-message tables so the current one-user flow can evolve toward multi-user support later.
+The product still behaves as a one-user MVP by default, but OAuth and webhook handling now use explicit Strava athlete-to-user mapping where available.
 
 ## 2. Current deployed status
 
@@ -83,30 +83,34 @@ The following features are currently working:
 - FastAPI app running locally and on Railway.
 - Strava OAuth connection.
 - `/connect-strava` redirects directly to Strava authorization.
+- `/strava/callback` saves tokens and associates returned Strava `athlete_id` with an `app_users` row.
 - `/debug/strava-token-status` returns safe token metadata without token values.
 - Strava token refresh flow.
 - Strava webhook verification endpoint.
 - Strava webhook subscription pointing to Railway.
-- Fetching exact activity by webhook `object_id`.
-- WhatsApp sending through Twilio.
+- Webhook `owner_id` routing to the matching `app_users.strava_athlete_id` when configured.
+- Fetching exact activity by webhook `object_id` using the resolved user's Strava token.
+- WhatsApp sending through Twilio using the resolved user's configured WhatsApp destination when available.
+- Current one-user/default behavior remains available as fallback for manual/local flows.
 - PT-BR message generation.
 - Strava token persistence backed by PostgreSQL `app_users` and `strava_tokens` tables when `DATABASE_URL` is configured.
 - Local `strava_tokens.json` fallback only when `DATABASE_URL` is not configured.
 - Duplicate webhook protection backed by a PostgreSQL `processed_events` table through `DATABASE_URL`.
-- Processed events can store `user_id` when Strava `owner_id` maps to the current app user.
+- Processed events store `user_id` when Strava `owner_id` maps to an app user.
 - Twilio sent-message metadata persistence backed by PostgreSQL `sent_messages` when `DATABASE_URL` is configured.
+- Sent messages store `user_id` and `strava_activity_id` when the webhook owner maps to an app user.
 - `/webhook/twilio/status` updates sent-message delivery status by Twilio Message SID without returning phone numbers or token values.
 - Recovery script for missed activities.
 - Manual resend by activity ID.
 - Logging to `logs/app.log` locally.
 - AI-assisted ride interpretation using OpenAI.
 - Improved ride classification using power, heart rate, suffer score, achievements, PR count, and laps.
-- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, database token persistence, Strava redirect behavior, safe token status metadata, sent-message persistence, and Twilio status callback updates.
+- Basic unittest coverage for core formatters, activity-name normalization, webhook event keys, ride classification, duplicate event database handling, database token persistence, Strava redirect behavior, safe token status metadata, sent-message persistence, Twilio status callback updates, app-user lookup, and webhook owner routing.
 - Repository hygiene cleaned up so runtime files stay untracked, private-key patterns are ignored, and the activity export helper is standardized as `scripts/export_activity_json.py`.
 
 ## 4. Current architecture summary
 
-The project was refactored from one large `main.py` into a modular structure:
+The project is structured as:
 
 ```text
 app/
@@ -135,84 +139,37 @@ scripts/
 └── export_activity_json.py
 ```
 
-Database-backed persistence now covers Strava tokens, duplicate webhook protection, and Twilio sent-message status tracking when `DATABASE_URL` is configured. The app initializes tables safely at startup with SQLAlchemy metadata creation and falls back to local JSON files only for local token/event development without `DATABASE_URL`.
+Database-backed persistence covers Strava tokens, duplicate webhook protection, Twilio sent-message status tracking, and basic app-user mapping when `DATABASE_URL` is configured. The app initializes tables safely at startup with SQLAlchemy metadata creation and falls back to local JSON files only for local token/event development without `DATABASE_URL`.
 
 ## 5. Current message behavior
 
-A typical WhatsApp message looks like this:
-
-```text
-Treino intervalado 🔥
-
-Pedalada matinal
-Pedalada • 38,9 km • 1h 17min • 216 m
-24/04 às 05:46
-
-Leitura do treino:
-Treino exigente, com variações de intensidade que aumentaram bem a carga do pedal.
-Dentro de uma semana já consistente, esse tipo de esforço eleva o acúmulo de fadiga.
-
-Seu contexto recente:
-4 pedais nos últimos 7 dias • 318,9 km
-Em relação aos 7 dias anteriores, seu volume está estável.
-Boa carga recente, vale cuidar da recuperação.
-
-Sugestão para amanhã:
-Amanhã vale priorizar recuperação ou um giro bem leve.
-```
-
-## 6. AI v1 status
-
-AI v1 is considered complete.
-
-The AI layer is used only for the short training interpretation under:
+WhatsApp message content is unchanged by the onboarding and owner-routing work. The AI layer still writes only the short training interpretation under:
 
 ```text
 Leitura do treino:
 ```
 
-The app still uses deterministic code for:
+Deterministic code still controls activity fetching, ride classification, weekly context, message structure, formatting, next-day suggestion, duplicate handling, and fallback behavior.
 
-- Activity fetching.
-- Ride classification.
-- Weekly context calculation.
-- Message structure.
-- Formatting.
-- Next-day suggestion.
-- Duplicate handling.
+## 6. Current known limitations
 
-This is intentional. The AI should interpret the ride, not control the workflow.
+### 6.1 Multi-user behavior is basic but not complete
 
-## 7. Current ride classification logic
+The app now maps Strava `athlete_id` / webhook `owner_id` to `app_users`, but it is still not a full multi-user product.
 
-The classification now considers more than distance/elevation/time.
+Remaining work:
 
-Important signals include:
+- explicit user onboarding UI or command flow
+- explicit WhatsApp number verification per user
+- per-user settings and preferences
+- fully user-scoped duplicate uniqueness after routing is mature
+- safer admin tooling for user mappings
 
-- `average_watts`
-- `weighted_average_watts`
-- `max_watts`
-- `average_heartrate`
-- `max_heartrate`
-- `suffer_score`
-- `achievement_count`
-- `pr_count`
-- hard laps derived from lap HR/power
+### 6.2 Unknown webhook owners are skipped
 
-The app now supports at least these ride classifications:
+If a Strava webhook arrives with an `owner_id` that does not map to an existing user, the app logs a safe warning and returns a successful webhook response without fetching the activity or sending WhatsApp. This avoids sending a user's activity through the wrong token or destination.
 
-- `intervalado`
-- `longo`
-- `de escalada`
-- `moderado`
-- `curto`
-- `leve`
-
-The classification `intervalado` should take priority when strong intensity signals are present.
-
-## 8. Current known limitations
-
-### 8.1 Persistence is database-backed with local fallback
+### 6.3 Persistence is database-backed with local fallback
 
 The app uses PostgreSQL tables configured by `DATABASE_URL` for:
 
@@ -228,18 +185,7 @@ When `DATABASE_URL` is not configured, local development falls back to:
 
 Those files remain ignored by Git and should not be used as production storage. Sent-message persistence is skipped gracefully without `DATABASE_URL` and logs a safe warning.
 
-### 8.2 Multi-user behavior is not fully built yet
-
-The schema is multi-user-ready, but the product still behaves as a one-user MVP. The current default-user strategy associates Strava OAuth tokens with a single default app user. Processed events store `user_id` when `owner_id` maps to that user, but duplicate protection still preserves the current global event key behavior.
-
-Future work:
-
-- explicit user onboarding
-- owner/user lookup in webhook processing
-- per-user WhatsApp destination routing
-- user-scoped duplicate uniqueness after onboarding exists
-
-### 8.3 Twilio WhatsApp 24-hour/freeform window
+### 6.4 Twilio WhatsApp 24-hour/freeform window
 
 Freeform WhatsApp messages can fail outside the allowed WhatsApp customer service window.
 
@@ -258,9 +204,9 @@ Future fix:
 
 - Use approved WhatsApp message templates for business-initiated outbound messages.
 
-### 8.4 Delivery status tracking is initial
+### 6.5 Delivery status tracking is initial
 
-The app now stores Twilio Message SID metadata and can update status through `/webhook/twilio/status` after Twilio is configured to call that URL.
+The app stores Twilio Message SID metadata and can update status through `/webhook/twilio/status` after Twilio is configured to call that URL.
 
 Remaining work:
 
@@ -269,12 +215,26 @@ Remaining work:
 - add approved templates for out-of-window delivery
 - add richer message history views or recovery tooling if needed
 
-## 9. Important commands
+### 6.6 Current active issue
+
+```text
+ISSUE-001 - AI feedback misclassifies steady-pace rides as interval sessions
+```
+
+See `docs/ISSUE_TRACKER.md` before changing ride classification or AI prompts.
+
+## 7. Important commands
 
 Run tests:
 
 ```bash
 python -m unittest discover
+```
+
+Run compile validation:
+
+```bash
+python -m compileall app scripts
 ```
 
 Run locally:
@@ -295,24 +255,10 @@ Required database variable for Railway/Supabase-backed persistence:
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 ```
 
-Check local health:
-
-```text
-http://127.0.0.1:8000/health
-```
-
 Check Railway health:
 
 ```text
 https://web-production-d4872.up.railway.app/health
-```
-
-List Strava webhook subscriptions:
-
-```powershell
-curl.exe -G "https://www.strava.com/api/v3/push_subscriptions" `
-  -d "client_id=YOUR_CLIENT_ID" `
-  -d "client_secret=YOUR_CLIENT_SECRET"
 ```
 
 Twilio delivery status callback URL:
@@ -321,14 +267,16 @@ Twilio delivery status callback URL:
 https://web-production-d4872.up.railway.app/webhook/twilio/status
 ```
 
-## 10. Recommended next milestone
+## 8. Recommended next milestone
 
-The next recommended milestone is WhatsApp delivery hardening and true multi-user routing.
+The next recommended milestone is reliability hardening now that basic owner routing exists.
 
 Suggested order:
 
-1. Configure Twilio status callbacks to call `/webhook/twilio/status`.
-2. Use sent-message status for retry/recovery decisions.
-3. Add approved WhatsApp templates for out-of-window messages.
-4. Add explicit user onboarding.
-5. Move duplicate uniqueness to user-scoped behavior after webhook owner routing is explicit.
+1. Confirm deployed OAuth callback maps the current Strava athlete to `app_users`.
+2. Confirm one real Strava webhook with `owner_id` uses the mapped user, token, and WhatsApp destination.
+3. Configure Twilio status callbacks to call `/webhook/twilio/status` if not already done.
+4. Fix `ISSUE-001` by refining ride intensity classification rules for steady rides with minor hills.
+5. Use sent-message status for retry/recovery decisions.
+6. Add approved WhatsApp templates for out-of-window messages.
+7. Add explicit onboarding UI or WhatsApp-command flow.
