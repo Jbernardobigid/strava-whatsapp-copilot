@@ -5,7 +5,11 @@ from app.config import STRAVA_VERIFY_TOKEN
 from app.services.coaching_service import build_activity_message
 from app.services.strava_service import build_weekly_context, get_strava_activity_by_id
 from app.services.whatsapp_service import send_whatsapp_message
-from app.utils.storage import has_processed_event, mark_event_as_processed
+from app.utils.storage import (
+    has_processed_event,
+    mark_event_as_processed,
+    resolve_app_user_for_webhook_event,
+)
 
 logger = get_logger(__name__)
 
@@ -41,11 +45,12 @@ async def receive_strava_webhook(request: Request):
     event = await request.json()
 
     logger.info(
-        "Strava webhook event received: object_type=%s aspect_type=%s object_id=%s event_time=%s",
+        "Strava webhook event received: object_type=%s aspect_type=%s object_id=%s event_time=%s owner_id=%s",
         event.get("object_type"),
         event.get("aspect_type"),
         event.get("object_id"),
         event.get("event_time"),
+        event.get("owner_id"),
     )
 
     if has_processed_event(event):
@@ -60,15 +65,43 @@ async def receive_strava_webhook(request: Request):
 
     if object_type == "activity" and aspect_type == "create":
         activity_id = event.get("object_id")
-        activity, error = get_strava_activity_by_id(activity_id)
+        app_user = resolve_app_user_for_webhook_event(event)
+
+        if event.get("owner_id") and not app_user:
+            logger.warning(
+                "Strava webhook skipped because owner_id is not mapped: object_id=%s owner_id=%s",
+                activity_id,
+                event.get("owner_id"),
+            )
+            return {"received": True, "skipped": "unknown_owner"}
+
+        user_id = app_user.get("id") if app_user else None
+        athlete_id = app_user.get("strava_athlete_id") if app_user else event.get("owner_id")
+        whatsapp_number = app_user.get("whatsapp_number") if app_user else None
+
+        activity, error = get_strava_activity_by_id(
+            activity_id,
+            user_id=user_id,
+            athlete_id=athlete_id,
+        )
 
         if not error and activity:
-            body = build_activity_message(activity)
-            send_whatsapp_message(body)
-            mark_event_as_processed(event)
+            body = build_activity_message(
+                activity,
+                user_id=user_id,
+                athlete_id=athlete_id,
+            )
+            send_whatsapp_message(
+                body,
+                to_number=whatsapp_number,
+                user_id=user_id,
+                strava_activity_id=activity_id,
+            )
+            mark_event_as_processed(event, user_id=user_id)
             logger.info(
-                "Webhook processed and WhatsApp message sent: object_id=%s",
+                "Webhook processed and WhatsApp message sent: object_id=%s user_id=%s",
                 activity_id,
+                user_id,
             )
         else:
             logger.error(
