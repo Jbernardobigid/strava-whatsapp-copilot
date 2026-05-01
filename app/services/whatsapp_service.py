@@ -12,7 +12,14 @@ from app.utils.storage import mask_whatsapp_number, record_sent_message
 logger = get_logger(__name__)
 
 
-def send_whatsapp_message(body: str) -> str:
+def send_whatsapp_message(
+    body: str,
+    to_number: str | None = None,
+    user_id: int | None = None,
+    strava_activity_id: str | int | None = None,
+) -> str:
+    destination = to_number or YOUR_WHATSAPP_NUMBER
+
     missing = []
     if not TWILIO_ACCOUNT_SID:
         missing.append("TWILIO_ACCOUNT_SID")
@@ -20,7 +27,7 @@ def send_whatsapp_message(body: str) -> str:
         missing.append("TWILIO_AUTH_TOKEN")
     if not TWILIO_WHATSAPP_NUMBER:
         missing.append("TWILIO_WHATSAPP_NUMBER")
-    if not YOUR_WHATSAPP_NUMBER:
+    if not destination:
         missing.append("YOUR_WHATSAPP_NUMBER")
 
     if missing:
@@ -31,20 +38,22 @@ def send_whatsapp_message(body: str) -> str:
     message = client.messages.create(
         body=body,
         from_=TWILIO_WHATSAPP_NUMBER,
-        to=YOUR_WHATSAPP_NUMBER,
+        to=destination,
     )
     initial_status = getattr(message, "status", None) or "accepted"
 
     record_sent_message(
         twilio_message_sid=message.sid,
-        to_number=YOUR_WHATSAPP_NUMBER,
+        to_number=destination,
         status=initial_status,
+        user_id=user_id,
+        strava_activity_id=strava_activity_id,
     )
 
     logger.info(
         "WhatsApp message accepted by Twilio: sid=%s to=%s status=%s",
         message.sid,
-        mask_whatsapp_number(YOUR_WHATSAPP_NUMBER),
+        mask_whatsapp_number(destination),
         initial_status,
     )
 
