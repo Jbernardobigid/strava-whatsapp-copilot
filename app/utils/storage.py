@@ -98,6 +98,16 @@ def _get_or_create_user_for_athlete(
         session.flush()
         return first_user
 
+    if not first_user:
+        user = AppUser(
+            name=DEFAULT_USER_NAME,
+            whatsapp_number=YOUR_WHATSAPP_NUMBER,
+            strava_athlete_id=athlete_id,
+        )
+        session.add(user)
+        session.flush()
+        return user
+
     user = AppUser(
         name=f"Strava athlete {athlete_id}",
         whatsapp_number=YOUR_WHATSAPP_NUMBER,
