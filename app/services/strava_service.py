@@ -15,8 +15,11 @@ from app.utils.storage import load_strava_tokens, save_strava_tokens
 logger = get_logger(__name__)
 
 
-def refresh_strava_token_if_needed() -> dict | None:
-    token_data = load_strava_tokens()
+def refresh_strava_token_if_needed(
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+) -> dict | None:
+    token_data = load_strava_tokens(user_id=user_id, athlete_id=athlete_id)
     if not token_data:
         return None
 
@@ -54,15 +57,18 @@ def refresh_strava_token_if_needed() -> dict | None:
         raise Exception(f"Failed to refresh Strava token: {response.text}")
 
     new_token_data = response.json()
-    save_strava_tokens(new_token_data)
+    save_strava_tokens(new_token_data, user_id=token_data.get("user_id"))
 
     logger.info("Strava access token refreshed successfully")
 
     return new_token_data
 
 
-def get_valid_strava_access_token() -> str | None:
-    token_data = refresh_strava_token_if_needed()
+def get_valid_strava_access_token(
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+) -> str | None:
+    token_data = refresh_strava_token_if_needed(user_id=user_id, athlete_id=athlete_id)
     if not token_data:
         return None
 
@@ -157,8 +163,11 @@ def simplify_activity(activity: dict) -> dict:
     }
 
 
-def get_latest_strava_activity():
-    access_token = get_valid_strava_access_token()
+def get_latest_strava_activity(
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+):
+    access_token = get_valid_strava_access_token(user_id=user_id, athlete_id=athlete_id)
 
     if not access_token:
         return None, "No Strava token found. First visit /connect-strava and authorize."
@@ -195,8 +204,12 @@ def get_latest_strava_activity():
     return latest_activity, None
 
 
-def get_strava_activity_by_id(activity_id: int):
-    access_token = get_valid_strava_access_token()
+def get_strava_activity_by_id(
+    activity_id: int,
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+):
+    access_token = get_valid_strava_access_token(user_id=user_id, athlete_id=athlete_id)
 
     if not access_token:
         return None, "No Strava token found. First visit /connect-strava and authorize."
@@ -228,8 +241,12 @@ def get_strava_activity_by_id(activity_id: int):
     return simplified_activity, None
 
 
-def get_recent_strava_activities(per_page: int = 30):
-    access_token = get_valid_strava_access_token()
+def get_recent_strava_activities(
+    per_page: int = 30,
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+):
+    access_token = get_valid_strava_access_token(user_id=user_id, athlete_id=athlete_id)
 
     if not access_token:
         return None, "No Strava token found. First visit /connect-strava and authorize."
@@ -264,8 +281,15 @@ def parse_strava_datetime(dt_str: str) -> datetime:
     return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
 
 
-def build_weekly_context() -> tuple[dict | None, str | None]:
-    activities, error = get_recent_strava_activities(per_page=30)
+def build_weekly_context(
+    user_id: int | None = None,
+    athlete_id: str | int | None = None,
+) -> tuple[dict | None, str | None]:
+    activities, error = get_recent_strava_activities(
+        per_page=30,
+        user_id=user_id,
+        athlete_id=athlete_id,
+    )
 
     if error:
         return None, error
