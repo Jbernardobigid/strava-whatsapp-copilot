@@ -207,3 +207,189 @@ python -m unittest discover
 **Manual follow-up:**
 
 [Any Railway, Twilio, Strava, or Supabase action still required.]
+
+# Planned Feature Backlog Seeds
+
+The sections below are concrete planning seeds for near-future TrainingBuddy features. Each can be copied into a standalone dated plan under `plans/` before implementation.
+
+## A. Strava Activity Tags
+
+**Feature name:**
+
+Strava activity tags for training context.
+
+**Purpose:**
+
+Allow TrainingBuddy to recognize activity-level tags such as `treino`, `prova`, `recuperacao`, `intervalado`, or `longao` so messages and future analytics can understand the rider's intent, not just the raw metrics.
+
+**Problem it solves:**
+
+The app currently infers ride type mostly from Strava metrics. A race-like effort, structured workout, social ride, or recovery spin may be misread if the metrics do not tell the full story. User-provided tags would give the system explicit intent and reduce wrong assumptions.
+
+**Technical needs:**
+
+- Decide the source of tags: Strava activity title markers, description hashtags, manual database labels, or a future WhatsApp command.
+- Add a tag parser in `app/services/strava_service.py` or a dedicated helper in `app/utils/`.
+- Consider an `activity_tags` table or a `tags` JSON/text column if activity persistence is added.
+- Keep webhook processing unchanged except for optional enrichment after the activity is fetched.
+- Add deterministic tests for tag extraction from names/descriptions.
+- Make tags available to `coaching_service` without changing the current WhatsApp format until a content change is explicitly planned.
+
+**Open questions:**
+
+- Should tags be inferred from Strava names like `[prova] Gran Fondo` or hashtags like `#prova`?
+- Should users be able to correct tags after the ride through WhatsApp?
+- Which tags should influence ride classification versus only analytics?
+- Should tags be stored before the app has a durable `activities` table?
+
+**Implementation order:**
+
+1. Define the first supported tag vocabulary and matching rules.
+2. Add pure parsing helpers and unit tests.
+3. Thread parsed tags into simplified activity data without changing message text.
+4. Optionally persist tags when activity persistence exists.
+5. Update docs and add examples for supported tag formats.
+
+## B. Refined AI Coach
+
+**Feature name:**
+
+Refined AI coach interpretation.
+
+**Purpose:**
+
+Improve the quality, specificity, and consistency of the AI-generated `Leitura do treino:` section while keeping deterministic business logic in control of workflow, structure, and safety fallback.
+
+**Problem it solves:**
+
+The current AI layer works, but future messages may still sound generic, repeat phrasing, overstate conclusions, or miss rider-specific training context. Better prompt design and stricter model inputs can make the coaching feel more useful without giving the AI control over the app.
+
+**Technical needs:**
+
+- Refine prompts in `app/services/ai_service.py` with clearer style constraints and examples.
+- Pass structured context only: ride classification, key metrics, recent-week summary, optional tags, and known constraints.
+- Keep deterministic fallback if OpenAI fails.
+- Keep WhatsApp body assembly in `coaching_service` so AI only writes the interpretation segment.
+- Consider model configuration changes through `OPENAI_MODEL`, but keep a safe default.
+- Add tests for fallback behavior and prompt/input shaping where practical.
+- Add golden examples for expected tone without snapshotting brittle full AI outputs.
+
+**Open questions:**
+
+- Should the coach mention power/heart-rate details directly, or only interpret them?
+- Should the AI adapt based on training phase, fatigue, or user goals once those exist?
+- Which model is the best cost/quality fit for short PT-BR coaching text?
+- Should the app store AI outputs for future repetition avoidance?
+
+**Implementation order:**
+
+1. Document desired voice and anti-patterns.
+2. Refine `ai_service` prompt and input payload.
+3. Add tests that confirm fallback remains available and no workflow logic moves into AI.
+4. Run validation and compare outputs manually with representative activities.
+5. Update `docs/PROJECT_STATE.md` and session notes with any prompt/model changes.
+
+## C. Multiple AI Coach Personalities
+
+**Feature name:**
+
+Selectable AI coach personalities.
+
+**Purpose:**
+
+Let users choose the coaching style that best fits how they want to receive feedback, while preserving the same underlying ride analysis and safety constraints.
+
+**Problem it solves:**
+
+A single coaching tone may not fit every moment or user. Some users want direct performance critique, some want calm recovery guidance, and others prefer a friendlier motivational tone. Personalities can increase perceived usefulness without changing the core training logic.
+
+**Coach styles:**
+
+- `direto`: concise, objective, performance-focused, low fluff.
+- `motivador`: encouraging, energetic, still specific to the ride.
+- `tecnico`: more analytical, mentions power, heart rate, load, and patterns when available.
+- `leve`: casual and supportive, useful for recovery or social rides.
+
+**User experience:**
+
+The current one-user MVP can start with a default personality configured in code or an environment variable. Later, multi-user support can store `coach_personality` per user and let users change it through onboarding, a settings page, or a WhatsApp command.
+
+**Technical needs:**
+
+- Add a personality enum/config map in `ai_service` or a dedicated coaching config module.
+- Keep deterministic ride classification unchanged.
+- Pass selected personality into AI prompt construction.
+- Add optional `coach_personality` to `app_users` when user preferences are ready.
+- Avoid changing message structure; personality should affect only the AI interpretation text unless explicitly planned.
+- Add tests that each personality maps to expected prompt instructions.
+
+**Open questions:**
+
+- Should personality be global for the MVP or stored per user now?
+- Should users be able to switch personality through WhatsApp commands?
+- Should certain ride tags force a style, such as `prova` using `tecnico`?
+- How do we prevent playful styles from becoming generic or too long?
+
+**Implementation order:**
+
+1. Define allowed personality keys and tone rules.
+2. Add prompt-instruction mapping with a default personality.
+3. Add tests for personality selection and fallback to default.
+4. Optionally add a user preference column after onboarding direction is clear.
+5. Update docs with available personalities and examples.
+
+## D. Sponsored Follow-Up Messages
+
+**Feature name:**
+
+Sponsored follow-up messages.
+
+**Purpose:**
+
+Create an opt-in business channel for occasional sponsor or partner follow-up messages that are relevant to the rider's activity context, while keeping coaching messages trustworthy and clearly separated from ads.
+
+**Problem it solves:**
+
+TrainingBuddy may need a monetization path, but inserting sponsor content directly into the core coaching message could reduce trust. A separate, consent-based follow-up message creates a cleaner business model and gives users control.
+
+**Business logic:**
+
+Sponsored messages should be sent only when all conditions are true:
+
+- The user has explicitly opted in.
+- The sponsor campaign is active.
+- The ride context matches campaign rules, such as long ride, race, recovery, or tag-based criteria.
+- Frequency caps are respected.
+- WhatsApp policy and Twilio template requirements are satisfied.
+- The message is clearly distinguishable from coaching.
+
+**User consent:**
+
+Start with no sponsored messages by default. Store explicit opt-in state, opt-in timestamp, and opt-out state. Every sponsored flow should have a simple opt-out path. Do not infer consent from normal app usage.
+
+**Technical needs:**
+
+- Add user consent fields or a dedicated `user_preferences` table.
+- Add campaign models such as `sponsor_campaigns` and `sponsored_message_events` when ready.
+- Use `sent_messages` or a related table to track sponsored delivery attempts and frequency caps.
+- Add Twilio template support for business-initiated sponsored messages outside the WhatsApp window.
+- Keep sponsor logic outside `coaching_service` so coaching remains independent.
+- Add eligibility checks in a dedicated service, for example `app/services/sponsor_service.py`.
+- Add tests for opt-in, opt-out, frequency caps, campaign matching, and no-send defaults.
+
+**Open questions:**
+
+- What sponsor categories are acceptable for the product?
+- Should sponsored messages be sent after every qualifying ride or batched weekly?
+- What is the minimum consent UX before this can launch?
+- How should sponsorship be disclosed in Portuguese?
+- Should sponsored messages use approved WhatsApp templates from day one?
+
+**Implementation order:**
+
+1. Define consent policy, sponsor boundaries, and disclosure language.
+2. Add database fields/tables for consent and campaign tracking.
+3. Add eligibility service with no-send defaults.
+4. Add tests for consent and frequency caps before any sending code.
+5. Integrate Twilio template sending only after policy and templates are ready.
+6. Update runbook with opt-out, monitoring, and rollback steps.
