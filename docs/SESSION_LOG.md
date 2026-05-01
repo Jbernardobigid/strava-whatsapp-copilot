@@ -206,6 +206,19 @@ https://web-production-d4872.up.railway.app/strava/callback
 - Kept WhatsApp message content, AI coaching behavior, Strava webhook verification, and duplicate protection unchanged.
 - Added tests for sent-message persistence, callback updates, masked numbers, and safe callback responses.
 
+## 2026-05-01 — Basic user onboarding and webhook owner routing
+
+- Preserved the current one-user default behavior while making Strava athlete/user mapping more explicit.
+- Updated OAuth token persistence so the Strava `athlete_id` returned by `/strava/callback` maps to an `app_users` row.
+- Added storage helpers to look up or create app users by Strava athlete ID.
+- Updated webhook processing to resolve Strava `owner_id` to `app_users.strava_athlete_id`.
+- Routed webhook activity fetches through the resolved user's Strava token when available.
+- Routed WhatsApp sends through the resolved user's stored WhatsApp destination when available, falling back to the configured default destination for existing flows.
+- Stored `processed_events.user_id` and `sent_messages.user_id` when the webhook owner maps to an app user.
+- Unknown webhook owners are skipped gracefully with a safe warning instead of using the wrong user's token or WhatsApp destination.
+- Kept WhatsApp message content, AI coaching behavior, Strava webhook verification, and duplicate protection unchanged.
+- Added tests for user lookup by athlete ID, webhook owner routing, default fallback behavior, sent-message user linkage, and safe debug response behavior.
+
 ## Next session recommended starting point
 
 1. Check Railway health endpoint:
@@ -214,14 +227,15 @@ https://web-production-d4872.up.railway.app/strava/callback
 https://web-production-d4872.up.railway.app/health
 ```
 
-2. Confirm one real Strava activity hits Railway logs.
+2. Confirm `/connect-strava` and `/strava/callback` map the current athlete to `app_users`.
 
-3. Confirm WhatsApp delivery from deployed app.
+3. Confirm one real Strava webhook with `owner_id` uses the mapped user, token, and WhatsApp destination.
 
 4. Continue hardening:
 
 ```text
 configure Twilio status callback → confirm sent_messages updates
+ISSUE-001 classification fix → restore trust for steady rides
 approved WhatsApp templates → out-of-window reliability
-explicit user onboarding → multi-user routing
+explicit onboarding UI or WhatsApp command flow → multi-user routing
 ```
