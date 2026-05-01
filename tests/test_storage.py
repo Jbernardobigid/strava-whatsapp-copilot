@@ -9,12 +9,15 @@ from sqlalchemy.pool import StaticPool
 from app import database
 from app.models import AppUser, Base, ProcessedEvent, SentMessage, StravaToken
 from app.utils.storage import (
+    get_app_user_by_strava_athlete_id,
+    get_or_create_app_user_for_athlete,
     get_strava_token_status,
     has_processed_event,
     load_strava_tokens,
     mark_event_as_processed,
     mask_whatsapp_number,
     record_sent_message,
+    resolve_app_user_for_webhook_event,
     save_strava_tokens,
     update_sent_message_status,
 )
@@ -96,6 +99,36 @@ class DatabaseStorageTests(unittest.TestCase):
         self.assertEqual(tokens[0].user_id, users[0].id)
         self.assertEqual(tokens[0].athlete_id, "12345")
 
+    def test_user_lookup_by_strava_athlete_id(self):
+        user = get_or_create_app_user_for_athlete(12345)
+        found = get_app_user_by_strava_athlete_id("12345")
+
+        self.assertEqual(found["id"], user["id"])
+        self.assertEqual(found["strava_athlete_id"], "12345")
+
+    def test_new_athlete_creates_new_user_without_rewriting_existing_user(self):
+        save_strava_tokens(
+            {
+                "access_token": "access-token-1",
+                "refresh_token": "refresh-token-1",
+                "expires_at": 1234567890,
+                "athlete": {"id": 12345},
+            }
+        )
+        save_strava_tokens(
+            {
+                "access_token": "access-token-2",
+                "refresh_token": "refresh-token-2",
+                "expires_at": 1234567891,
+                "athlete": {"id": 67890},
+            }
+        )
+
+        with database.get_session() as session:
+            athlete_ids = sorted(user.strava_athlete_id for user in session.query(AppUser).all())
+
+        self.assertEqual(athlete_ids, ["12345", "67890"])
+
     def test_token_refresh_updates_existing_database_record(self):
         save_strava_tokens(
             {
@@ -123,6 +156,24 @@ class DatabaseStorageTests(unittest.TestCase):
             self.assertEqual(session.query(AppUser).count(), 1)
             self.assertEqual(session.query(StravaToken).count(), 1)
 
+    def test_load_strava_tokens_can_select_by_user_or_athlete(self):
+        save_strava_tokens(
+            {
+                "access_token": "access-token-1",
+                "refresh_token": "refresh-token-1",
+                "expires_at": 1234567890,
+                "athlete": {"id": 12345},
+            }
+        )
+        user = get_app_user_by_strava_athlete_id(12345)
+
+        by_user = load_strava_tokens(user_id=user["id"])
+        by_athlete = load_strava_tokens(athlete_id=12345)
+
+        self.assertEqual(by_user["access_token"], "access-token-1")
+        self.assertEqual(by_athlete["access_token"], "access-token-1")
+        self.assertEqual(by_user["user_id"], user["id"])
+
     def test_processed_event_links_to_user_when_owner_id_matches(self):
         save_strava_tokens(
             {
@@ -146,6 +197,46 @@ class DatabaseStorageTests(unittest.TestCase):
             processed_event = session.query(ProcessedEvent).one()
 
         self.assertEqual(processed_event.user_id, user.id)
+
+    def test_processed_event_can_use_explicit_user_id(self):
+        user = get_or_create_app_user_for_athlete(12345)
+        event = {
+            "object_type": "activity",
+            "aspect_type": "create",
+            "object_id": 18236736799,
+            "owner_id": 12345,
+        }
+
+        mark_event_as_processed(event, user_id=user["id"])
+
+        with database.get_session() as session:
+            processed_event = session.query(ProcessedEvent).one()
+
+        self.assertEqual(processed_event.user_id, user["id"])
+
+    def test_resolve_webhook_owner_uses_mapped_user(self):
+        user = get_or_create_app_user_for_athlete(12345)
+
+        resolved = resolve_app_user_for_webhook_event({"owner_id": 12345})
+
+        self.assertEqual(resolved["id"], user["id"])
+        self.assertEqual(resolved["strava_athlete_id"], "12345")
+
+    def test_resolve_webhook_owner_falls_back_for_unmapped_default_user(self):
+        with database.get_session() as session:
+            session.add(AppUser(name="Default user"))
+            session.commit()
+
+        resolved = resolve_app_user_for_webhook_event({"owner_id": 12345})
+
+        self.assertEqual(resolved["strava_athlete_id"], "12345")
+
+    def test_resolve_webhook_owner_returns_none_for_unknown_mapped_user(self):
+        get_or_create_app_user_for_athlete(12345)
+
+        resolved = resolve_app_user_for_webhook_event({"owner_id": 67890})
+
+        self.assertIsNone(resolved)
 
     def test_token_status_returns_metadata_without_secrets(self):
         save_strava_tokens(
@@ -171,12 +262,15 @@ class DatabaseStorageTests(unittest.TestCase):
         )
         self.assertNotIn("access_token", status)
         self.assertNotIn("refresh_token", status)
+        self.assertNotIn("whatsapp_number", status)
 
     def test_record_sent_message_masks_number_and_persists_status(self):
+        user = get_or_create_app_user_for_athlete(12345)
         result = record_sent_message(
             twilio_message_sid="SM123",
             to_number="whatsapp:+5511999991234",
             status="queued",
+            user_id=user["id"],
             strava_activity_id=18236736799,
         )
 
@@ -188,6 +282,7 @@ class DatabaseStorageTests(unittest.TestCase):
             row = session.query(SentMessage).one()
 
         self.assertEqual(row.twilio_message_sid, "SM123")
+        self.assertEqual(row.user_id, user["id"])
         self.assertEqual(row.strava_activity_id, "18236736799")
         self.assertEqual(row.to_number, "whatsapp:**********1234")
         self.assertNotEqual(row.to_number, "whatsapp:+5511999991234")
