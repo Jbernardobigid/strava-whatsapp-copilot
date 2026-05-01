@@ -30,13 +30,79 @@ Use one of these values:
 
 | Issue ID | Summary | Status | Priority | Owner/Team | Identified Date | Target Resolution Date |
 | --- | --- | --- | --- | --- | --- | --- |
-| TBD-001 | [Concise issue summary] | open | P2 | [Owner or team] | YYYY-MM-DD | YYYY-MM-DD |
+| ISSUE-001 | AI feedback misclassifies steady-pace rides as interval sessions | open | Medium (P2) | Myself (single team member) | 2026-05-01 | 2026-05-31 |
+
+## Active Issues
+
+### Issue ID: ISSUE-001
+
+**Summary:**
+
+AI feedback misclassifies steady-pace rides as interval sessions.
+
+**Status:**
+
+open
+
+**Priority:**
+
+Medium (P2)
+
+**Owner or team:**
+
+Myself (single team member)
+
+**Identified date:**
+
+2026-05-01
+
+**Target resolution date:**
+
+2026-05-31
+
+**Resolved date:**
+
+N/A
+
+**Problem description:**
+
+The AI feedback mislabels steady rides with minor hills as interval training. The likely issue is that ride intensity classification is treating normal terrain-driven pace or effort variation as interval-like structure.
+
+**Impact:**
+
+High. Wrong feedback undermines user trust and product value because the assistant appears to misunderstand the workout type and may give inappropriate recovery or training interpretation.
+
+**Affected areas:**
+
+- `app/services/coaching_service.py`: ride classification rules.
+- `app/services/ai_service.py`: AI interpretation may amplify or repeat the incorrect classification.
+
+**Proposed solution or next steps:**
+
+1. Review today's ride data and identify which metrics caused the interval classification.
+2. Refine ride intensity classification rules so steady rides with minor hills are not treated as interval sessions.
+3. Add or update tests covering steady rides, hilly steady rides, true interval sessions, long rides, and recovery rides.
+4. Confirm AI feedback reflects the corrected classification without changing the overall WhatsApp message structure unless explicitly planned.
+
+**Validation plan:**
+
+- Test on various ride types to confirm accurate feedback.
+- Include at least one steady-pace ride with minor hills and one true interval session.
+- Run `python -m compileall app scripts` and `python -m unittest discover` after implementation.
+
+**Related links or references:**
+
+- Today's ride data.
+
+**Notes:**
+
+Move this issue to the archive when resolved.
 
 ## Issue Entry Template
 
 Copy this section for each new issue.
 
-### Issue ID: TBD-001
+### Issue ID: ISSUE-XXX
 
 **Summary:**
 
