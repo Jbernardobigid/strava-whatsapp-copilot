@@ -34,7 +34,7 @@ Project-specific rules to preserve:
 
 TrainingBuddy is a personal cycling copilot. It receives Strava activity webhook events, fetches the full activity, builds a Brazilian Portuguese training interpretation, and sends it through Twilio WhatsApp.
 
-The product currently behaves as a one-user MVP, but the database model has started moving toward future multi-user support.
+The product still behaves as a one-user MVP by default, but OAuth and webhook processing now support explicit Strava athlete-to-user mapping.
 
 ## Deployment Status
 
@@ -79,10 +79,13 @@ Webhook subscription status:
 - The subscription ID observed during setup was `342486`.
 - Duplicate webhook protection is database-backed when `DATABASE_URL` is configured.
 
-OAuth status:
+OAuth and owner-routing status:
 
 - `/connect-strava` redirects directly to Strava authorization.
-- `/strava/callback` exchanges the code and stores tokens for the default app user.
+- `/strava/callback` exchanges the code, stores tokens, and associates the returned Strava `athlete_id` with an `app_users` row.
+- Webhook `owner_id` is resolved against `app_users.strava_athlete_id`.
+- Resolved users are used for token lookup, WhatsApp destination routing, `processed_events.user_id`, and `sent_messages.user_id`.
+- Unknown webhook owners are skipped gracefully with a safe warning instead of using another user's token or destination.
 - `/debug/strava-token-status` returns safe metadata only and must not return token values.
 
 ## Twilio Status
@@ -134,7 +137,8 @@ Production persistence uses Supabase PostgreSQL through `DATABASE_URL`.
 
 When `DATABASE_URL` is configured:
 
-- Strava tokens are stored in PostgreSQL.
+- App users are stored in PostgreSQL.
+- Strava tokens are stored per app user in PostgreSQL.
 - Processed webhook events are stored in PostgreSQL.
 - Twilio sent-message metadata and status are stored in PostgreSQL.
 - Tables are initialized safely at startup through SQLAlchemy metadata creation.
@@ -197,12 +201,15 @@ sent_messages
 Current database-backed features:
 
 - Default app user creation/lookup.
+- App user lookup by Strava athlete ID.
 - Strava token persistence per user.
-- Token refresh updates the database record, including any new refresh token returned by Strava.
+- Token refresh updates the user's database record, including any new refresh token returned by Strava.
+- Webhook owner routing by Strava `owner_id`.
 - Processed-event duplicate protection.
-- `processed_events.user_id` can be populated when Strava `owner_id` maps to the current app user.
+- `processed_events.user_id` is populated when Strava `owner_id` maps to an app user.
 - Current duplicate uniqueness still preserves the existing global event-key behavior.
 - Twilio sent-message metadata persistence after Twilio accepts a send.
+- `sent_messages.user_id` and `sent_messages.strava_activity_id` are populated when webhook owner routing resolves a user.
 - Twilio delivery status updates by Message SID.
 
 Do not print, log, return, or commit token values.
@@ -239,10 +246,10 @@ The template now includes backlog seeds for:
 
 ## Remaining Known Limitations
 
-- The product is still a one-user MVP despite multi-user-ready tables.
-- There is no explicit onboarding flow yet.
-- Webhook owner-to-user routing is not fully productized.
-- WhatsApp destination routing is not fully per-user yet.
+- The product is still a one-user MVP despite multi-user-ready tables and owner routing.
+- There is no explicit onboarding UI or WhatsApp-command onboarding flow yet.
+- WhatsApp number verification is not fully built yet.
+- WhatsApp destination routing is still basic and uses the existing configured/default destination for current users.
 - Duplicate protection is not fully user-scoped yet.
 - Twilio status callback must be configured in Twilio for delivery updates to arrive.
 - Twilio delivery tracking is initial and is not yet used for retries or recovery decisions.
@@ -256,14 +263,14 @@ The template now includes backlog seeds for:
 
 Recommended order:
 
-1. Configure Twilio status callbacks to call `/webhook/twilio/status` if not already done.
-2. Fix `ISSUE-001` by refining ride intensity classification rules for steady rides with minor hills.
-3. Add tests for steady, hilly steady, true interval, long, and recovery ride classifications.
-4. Use sent-message status for retry/recovery decisions.
-5. Add approved WhatsApp templates for out-of-window messages.
-6. Add explicit user onboarding.
-7. Route webhook events by Strava `owner_id` to the correct app user.
-8. Make duplicate protection fully user-scoped after owner routing is explicit.
+1. Confirm deployed OAuth callback maps the current Strava athlete to `app_users`.
+2. Confirm one real Strava webhook with `owner_id` uses the mapped user, token, and WhatsApp destination.
+3. Configure Twilio status callbacks to call `/webhook/twilio/status` if not already done.
+4. Fix `ISSUE-001` by refining ride intensity classification rules for steady rides with minor hills.
+5. Use sent-message status for retry/recovery decisions.
+6. Add approved WhatsApp templates for out-of-window messages.
+7. Add explicit onboarding UI or WhatsApp-command flow.
+8. Make duplicate protection fully user-scoped after owner routing is mature.
 9. Optionally add `activities` persistence for raw Strava activity snapshots and analysis history.
 
 ## Important Commands
