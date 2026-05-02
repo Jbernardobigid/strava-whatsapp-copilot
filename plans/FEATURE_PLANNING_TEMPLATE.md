@@ -393,3 +393,124 @@ Start with no sponsored messages by default. Store explicit opt-in state, opt-in
 4. Add tests for consent and frequency caps before any sending code.
 5. Integrate Twilio template sending only after policy and templates are ready.
 6. Update runbook with opt-out, monitoring, and rollback steps.
+
+## E. User Groups / Audience Segmentation
+
+**Feature name:**
+
+User Groups / Audience Segmentation.
+
+**Purpose:**
+
+Plan a future capability for assigning TrainingBuddy users to one or more product-safe groups or audience segments. The goal is to support more relevant product experiences, cohort analytics, future subscription tiers, and business opportunities such as targeted partner campaigns without changing current coaching behavior immediately.
+
+**Problem it solves:**
+
+As TrainingBuddy moves from a one-user MVP toward multi-user onboarding, treating every user as the same audience will limit product learning and monetization. Without segmentation, the product cannot easily support targeted communication, partner campaign eligibility, cohort analysis, user-specific experiences, or revenue experiments.
+
+Sponsors and partners usually want to reach specific audiences rather than every user. Product-safe grouping would make it possible to plan relevant campaigns and experiences while avoiding sensitive or discriminatory segmentation.
+
+**Example groups:**
+
+- Beginner riders.
+- Endurance-focused riders.
+- High-volume riders.
+- Low-frequency riders.
+- Commuters.
+- Race-focused riders.
+- Users interested in nutrition content.
+- Users eligible for sponsored hydration messages.
+- Highly engaged users.
+- Inactive users.
+- Free tier users.
+- Premium tier users.
+
+**Technical or architectural changes needed:**
+
+Possible future changes, not for the current documentation-only task:
+
+- `app/models.py`: add passive tables such as `user_groups`, `user_group_memberships`, or `audience_segments`.
+- `app/services/`: add a service for assigning, updating, and evaluating user groups.
+- `app/routes/`: add internal/admin endpoints for viewing or assigning groups once admin safety is defined.
+- `app/utils/`: add helper functions for safe masking, group-rule evaluation, and privacy-preserving debug output.
+- `docs/`: document allowed segmentation rules, privacy constraints, consent boundaries, and examples of disallowed attributes.
+
+Possible future `user_groups` fields:
+
+- `id`
+- `name`
+- `description`
+- `group_type`
+- `is_active`
+- `created_at`
+- `updated_at`
+
+Possible future `user_group_memberships` fields:
+
+- `id`
+- `user_id`
+- `group_id`
+- `source`
+- `reason`
+- `created_at`
+- `updated_at`
+
+Optional later campaign-related tables:
+
+- `campaigns`
+- `campaign_audience_rules`
+- `campaign_deliveries`
+
+**Behavior changes:**
+
+There should be no immediate application behavior change until this feature is implemented in a later task. Current WhatsApp message content, AI coaching behavior, Strava webhook behavior, duplicate protection, and database models should remain unchanged for now.
+
+Future behavior could include:
+
+- Selecting which sponsored follow-up message a user is eligible to receive.
+- Choosing different onboarding flows by user type.
+- Analyzing retention by user group.
+- Enabling partner campaigns only for relevant groups.
+- Supporting premium and free user experiences.
+
+**Risks and constraints:**
+
+- Privacy concerns if grouping rules are too broad, opaque, or personal.
+- Over-targeting users or making the product feel spammy.
+- Sending irrelevant sponsored messages that reduce trust.
+- Accidentally using sensitive or protected attributes.
+- Confusing group logic with AI coaching logic.
+- Making the data model too complex before the multi-user product needs it.
+
+Segmentation should use explicit user choices, product behavior, subscription status, or activity metadata. It should not use sensitive personal attributes such as race, ethnicity, religion, health status, political views, or similar protected characteristics.
+
+**Testing plan:**
+
+Future validation should include:
+
+- Unit tests for group assignment and rule evaluation logic.
+- Tests confirming users can belong to multiple groups.
+- Tests confirming inactive groups are ignored.
+- Tests confirming unknown users fall back safely.
+- Tests confirming sponsored campaigns only target eligible groups.
+- Tests confirming debug/admin outputs do not expose private data unnecessarily.
+
+**Open questions:**
+
+- Should groups be manually assigned, automatically inferred, or both?
+- Should users be able to opt out of sponsored content?
+- Which group types are safe and useful for the MVP?
+- Should group membership be visible to users?
+- How will sponsored messages respect WhatsApp opt-in and template requirements?
+- Should group logic affect AI coaching, sponsored messages only, or both?
+- Should the product start with simple static groups before adding rule-based segmentation?
+
+**Recommended implementation order:**
+
+1. Define allowed group types and privacy rules.
+2. Add a passive data model for groups and memberships.
+3. Add internal-only tools to assign users to groups.
+4. Add tests for group lookup and fallback behavior.
+5. Use groups only for analytics first.
+6. Later connect groups to sponsored follow-up eligibility.
+7. Later connect groups to personalization or subscription features.
