@@ -19,6 +19,7 @@ For planning or triage work, also check:
 ```text
 docs/ISSUE_TRACKER.md
 plans/FEATURE_PLANNING_TEMPLATE.md
+plans/PLANNED_FEATURES.md
 ```
 
 Project-specific rules to preserve:
@@ -231,18 +232,24 @@ Priority: Medium (P2)
 Target resolution: 2026-05-31
 ```
 
-Feature planning template:
+Feature planning files:
 
 ```text
 plans/FEATURE_PLANNING_TEMPLATE.md
+plans/PLANNED_FEATURES.md
 ```
 
-The template now includes backlog seeds for:
+`FEATURE_PLANNING_TEMPLATE.md` is the reusable framework for one future feature. `PLANNED_FEATURES.md` is the numeric register of planned feature ideas.
 
-- Strava activity tags.
-- Refined AI coach.
-- Multiple AI coach personalities.
-- Sponsored follow-up messages.
+Current planned features:
+
+| ID | Feature |
+|---:|---|
+| 1 | Strava Activity Tags |
+| 2 | Refined AI Coach |
+| 3 | Multiple AI Coach Personalities |
+| 4 | Sponsored Follow-Up Messages |
+| 5 | User Groups / Audience Segmentation |
 
 ## Remaining Known Limitations
 
