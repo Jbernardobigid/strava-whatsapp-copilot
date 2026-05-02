@@ -1,6 +1,6 @@
 # TrainingBuddy Issue Tracker
 
-_Last updated: 2026-05-01_
+_Last updated: 2026-05-02_
 
 Use this document to track current product, engineering, operations, and documentation issues for TrainingBuddy / Strava WhatsApp Copilot.
 
@@ -93,8 +93,11 @@ High. Wrong feedback undermines user trust and product value because the assista
 **Related links or references:**
 
 - Today's ride data.
+- `plans/PLANNED_FEATURES.md`, feature `2`: Refined AI Coach.
 
 **Notes:**
+
+This issue tracks the concrete misclassification defect. Broader future AI coach quality work remains in `plans/PLANNED_FEATURES.md` under feature `2`, so the issue tracker stays focused on actionable defects.
 
 Move this issue to the archive when resolved.
 
