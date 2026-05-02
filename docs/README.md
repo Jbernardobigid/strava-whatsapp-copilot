@@ -13,9 +13,10 @@ This folder contains long-standing documentation for TrainingBuddy / Strava What
 - [Issue Tracker](ISSUE_TRACKER.md) — Active issues, priorities, owners, validation plans, and resolved issue archive.
 - [Session Log](SESSION_LOG.md) — Chronological project progress notes.
 
-## Planning Templates
+## Planning Docs
 
-- [Feature Planning Template](../plans/FEATURE_PLANNING_TEMPLATE.md) — Use this before implementing larger product changes.
+- [Feature Planning Template](../plans/FEATURE_PLANNING_TEMPLATE.md) — Reusable framework for planning one future feature before implementation.
+- [Planned Features](../plans/PLANNED_FEATURES.md) — Numeric register of planned feature ideas and backlog seeds.
 
 ## Guidelines for Writing Docs
 
