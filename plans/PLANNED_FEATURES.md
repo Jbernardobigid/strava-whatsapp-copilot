@@ -9,7 +9,7 @@ Keep this register high-signal and future-facing. Do not document secrets, raw p
 | ID | Feature | Status | Primary purpose | Suggested next step |
 |---:|---|---|---|---|
 | 1 | Strava Activity Tags | Planned | Capture rider intent from activity labels or tags. | Define the first supported tag vocabulary. |
-| 2 | Refined AI Coach | Planned | Improve AI interpretation quality while keeping deterministic app logic in control. | Document desired voice and anti-patterns. |
+| 2 | Refined AI Coach | Planned | Improve AI interpretation quality while keeping deterministic app logic in control. | Use `ISSUE-001` as the first concrete quality fix, then document desired voice and anti-patterns. |
 | 3 | Multiple AI Coach Personalities | Planned | Let users choose coaching style without changing ride analysis. | Define allowed personality keys and tone rules. |
 | 4 | Sponsored Follow-Up Messages | Planned | Create an opt-in monetization channel separated from core coaching. | Define consent policy and sponsor boundaries. |
 | 5 | User Groups / Audience Segmentation | Planned | Organize users into product-safe groups for analytics, campaigns, and future personalization. | Define allowed group types and privacy rules. |
@@ -66,6 +66,10 @@ Improve the quality, specificity, and consistency of the AI-generated `Leitura d
 
 The current AI layer works, but future messages may still sound generic, repeat phrasing, overstate conclusions, or miss rider-specific training context. Better prompt design and stricter model inputs can make the coaching feel more useful without giving the AI control over the app.
 
+**Related active issue:**
+
+`ISSUE-001` in `docs/ISSUE_TRACKER.md` tracks the concrete defect where steady-pace rides with minor hills can be mislabeled as interval sessions. This planned feature remains broader than that bug: it covers future prompt quality, tone, model inputs, fallback rules, and coaching consistency after concrete defects are handled.
+
 **Technical needs:**
 
 - Refine prompts in `app/services/ai_service.py` with clearer style constraints and examples.
@@ -85,11 +89,12 @@ The current AI layer works, but future messages may still sound generic, repeat 
 
 **Implementation order:**
 
-1. Document desired voice and anti-patterns.
-2. Refine `ai_service` prompt and input payload.
-3. Add tests that confirm fallback remains available and no workflow logic moves into AI.
-4. Run validation and compare outputs manually with representative activities.
-5. Update `docs/PROJECT_STATE.md` and session notes with any prompt/model changes.
+1. Resolve or explicitly account for `ISSUE-001` so the AI coach is not building on known wrong ride classification.
+2. Document desired voice and anti-patterns.
+3. Refine `ai_service` prompt and input payload.
+4. Add tests that confirm fallback remains available and no workflow logic moves into AI.
+5. Run validation and compare outputs manually with representative activities.
+6. Update `docs/PROJECT_STATE.md` and session notes with any prompt/model changes.
 
 ## 3. Multiple AI Coach Personalities
 
